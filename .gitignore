@@ -1,0 +1,22 @@
+# [DONE] .gitignore for VoxAssist-Desktop
+
+# Build results
+[Bb]in/
+[Oo]bj/
+
+# IDE settings
+.idea/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.DotSettings.user
+appsettings.json
+*.env

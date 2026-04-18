@@ -1,0 +1,31 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="VoxAssist.Desktop.Views.HotkeyWindow"
+        Title="Set Hotkey" Width="350" Height="180"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Topmost="True"
+        ShowInTaskbar="False"
+        SystemDecorations="BorderOnly"
+        Background="#1e1e1e"
+        Focusable="True">
+    <Border BorderBrush="#00FF00" BorderThickness="1" CornerRadius="8" Padding="20">
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="15">
+            <TextBlock x:Name="PromptText" 
+                       Text="Press Hot Key for Action" 
+                       TextAlignment="Center" 
+                       FontSize="18" 
+                       Foreground="White"
+                       FontWeight="SemiBold"/>
+            <TextBlock Text="Recording will stop when you release the keys." 
+                       TextAlignment="Center" 
+                       FontSize="12" 
+                       Foreground="Gray"/>
+            <TextBlock Text="Press ESC to cancel" 
+                       TextAlignment="Center" 
+                       FontSize="12" 
+                       Foreground="#AA0000"
+                       Opacity="0.8"/>
+        </StackPanel>
+    </Border>
+</Window>

@@ -1,0 +1,24 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="VoxAssist.Desktop.App"
+             xmlns:local="using:VoxAssist.Desktop"
+             xmlns:conv="using:VoxAssist.Desktop.Converters"
+             RequestedThemeVariant="Default">
+             <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
+
+    <Application.Resources>
+        <conv:BoolToConnectedConverter x:Key="BoolToConnectedConverter"/>
+        <conv:BoolToColorConverter x:Key="BoolToColorConverter"/>
+        <conv:BoolToFreezeTextConverter x:Key="BoolToFreezeTextConverter"/>
+        <conv:CompressionNameConverter x:Key="CompressionNameConverter"/>
+        <conv:MicStatusColorConverter x:Key="MicStatusColorConverter"/>
+    </Application.Resources>
+
+    <Application.DataTemplates>
+        <local:ViewLocator/>
+    </Application.DataTemplates>
+  
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+</Application>

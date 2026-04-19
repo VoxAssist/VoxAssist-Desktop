@@ -37,13 +37,22 @@ public class ActionViewModel : ViewModelBase
     public List<KeyCode> Hotkey { get; set; } = new();
 }
 
-public class LlmViewModel : ViewModelBase
+public class AiProviderViewModel : ViewModelBase
 {
+    private string _name = "";
+    public string Name { get => _name; set => this.RaiseAndSetIfChanged(ref _name, value); }
+
     private string _hostUrl = "";
     public string HostUrl { get => _hostUrl; set => this.RaiseAndSetIfChanged(ref _hostUrl, value); }
 
     private string _apiKey = "";
     public string ApiKey { get => _apiKey; set => this.RaiseAndSetIfChanged(ref _apiKey, value); }
+}
+
+public class LlmViewModel : ViewModelBase
+{
+    private string _providerName = "";
+    public string ProviderName { get => _providerName; set => this.RaiseAndSetIfChanged(ref _providerName, value); }
 
     private string _model = "";
     public string Model { get => _model; set => this.RaiseAndSetIfChanged(ref _model, value); }
@@ -201,6 +210,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     
     public ObservableCollection<LlmViewModel> Llms { get; } = new();
     public ObservableCollection<LlmViewModel> LlmSelectorItems { get; } = new();
+    public ObservableCollection<AiProviderViewModel> AiProviders { get; } = new();
     
     private LlmViewModel? _selectedLlm;
     public LlmViewModel? SelectedLlm 
@@ -279,7 +289,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             var settingsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings");
             if (!Directory.Exists(settingsDir)) Directory.CreateDirectory(settingsDir);
 
-            string[] files = { "settings.json", "ai_models.json", "actions.json" };
+            string[] files = { "settings.json", "ai_models.json", "actions.json", "ai_providers.json" };
             foreach (var file in files)
             {
                 var filePath = Path.Combine(settingsDir, file);
@@ -310,6 +320,21 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 }
             }
 
+            var providersPath = Path.Combine(settingsDir, "ai_providers.json");
+            if (File.Exists(providersPath))
+            {
+                var json = File.ReadAllText(providersPath);
+                var providers = System.Text.Json.JsonSerializer.Deserialize<List<AiProviderConfig>>(json);
+                if (providers != null)
+                {
+                    AiProviders.Clear();
+                    foreach (var p in providers)
+                    {
+                        AiProviders.Add(new AiProviderViewModel { Name = p.Name, HostUrl = p.HostUrl, ApiKey = p.ApiKey });
+                    }
+                }
+            }
+
             var modelsPath = Path.Combine(settingsDir, "ai_models.json");
             if (File.Exists(modelsPath))
             {
@@ -320,7 +345,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                     Llms.Clear();
                     foreach (var l in models)
                     {
-                        Llms.Add(new LlmViewModel { HostUrl = l.HostUrl, ApiKey = l.ApiKey, Model = l.Model, IsDefault = l.IsDefault });
+                        Llms.Add(new LlmViewModel { ProviderName = l.ProviderName, Model = l.Model, IsDefault = l.IsDefault });
                     }
                 }
             }
@@ -342,10 +367,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         }
         catch { }
 
-        if (Llms.Count == 0)
-        {
-            Llms.Add(new LlmViewModel { HostUrl = "https://api.openai.com/v1", Model = "gpt-4o", IsDefault = true });
-        }
+        if (AiProviders.Count == 0) AiProviders.Add(new AiProviderViewModel { Name = "OpenAI", HostUrl = "https://api.openai.com/v1" });
+        if (Llms.Count == 0) Llms.Add(new LlmViewModel { ProviderName = "OpenAI", Model = "gpt-4o", IsDefault = true });
         
         if (Actions.Count == 0)
         {
@@ -371,16 +394,12 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private void UpdateLlmSelector()
     {
         LlmSelectorItems.Clear();
-        LlmSelectorItems.Add(new LlmViewModel { Model = "Default", HostUrl = "" });
+        LlmSelectorItems.Add(new LlmViewModel { Model = "Default", ProviderName = "" });
         foreach (var llm in Llms) LlmSelectorItems.Add(llm);
 
         foreach (var action in Actions)
         {
-            // If the linked model no longer exists, reset to default
-            if (!string.IsNullOrEmpty(action.AiModel) && !Llms.Any(l => l.Model == action.AiModel))
-            {
-                action.AiModel = "";
-            }
+            if (!string.IsNullOrEmpty(action.AiModel) && !Llms.Any(l => l.Model == action.AiModel)) action.AiModel = "";
         }
     }
 
@@ -445,8 +464,23 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
     public async Task AddLlm()
     {
-        var newLlm = new LlmViewModel { HostUrl = "", Model = "" };
+        var newLlm = new LlmViewModel { ProviderName = AiProviders.FirstOrDefault()?.Name ?? "", Model = "" };
         await EditLlm(newLlm, true);
+    }
+
+    public async Task AddProvider()
+    {
+        var newProvider = new AiProviderViewModel { Name = "New Provider", HostUrl = "" };
+        var dialog = new ProviderEditDialog { DataContext = newProvider };
+        var mainWindow = GetMainWindow();
+        if (mainWindow == null) return;
+
+        var result = await dialog.ShowDialog<bool>(mainWindow);
+        if (result)
+        {
+            AiProviders.Add(newProvider);
+            SaveLocalData();
+        }
     }
 
     public async Task EditGrokStt()
@@ -477,7 +511,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
     private async Task EditLlm(LlmViewModel llm, bool isNew = false)
     {
-        var dialog = new LlmEditDialog { DataContext = llm, IsNew = isNew };
+        var dialog = new LlmEditDialog(this) { DataContext = llm, IsNew = isNew };
         var mainWindow = GetMainWindow();
         if (mainWindow == null) return;
 
@@ -529,11 +563,15 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             var json = System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(settingsDir, "settings.json"), json);
 
+            var providers = AiProviders.Select(p => new AiProviderConfig { Name = p.Name, HostUrl = p.HostUrl, ApiKey = p.ApiKey }).ToList();
+            var providersJson = System.Text.Json.JsonSerializer.Serialize(providers, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(Path.Combine(settingsDir, "ai_providers.json"), providersJson);
+
             var actions = Actions.Select(a => new ActionConfig { Name = a.Name, Prompt = a.Prompt, AiModel = a.AiModel }).ToList();
             var actionsJson = System.Text.Json.JsonSerializer.Serialize(actions, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(settingsDir, "actions.json"), actionsJson);
 
-            var models = Llms.Select(l => new LlmConfig { HostUrl = l.HostUrl, ApiKey = l.ApiKey, Model = l.Model, IsDefault = l.IsDefault }).ToList();
+            var models = Llms.Select(l => new LlmConfig { ProviderName = l.ProviderName, Model = l.Model, IsDefault = l.IsDefault }).ToList();
             var modelsJson = System.Text.Json.JsonSerializer.Serialize(models, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(settingsDir, "ai_models.json"), modelsJson);
         }

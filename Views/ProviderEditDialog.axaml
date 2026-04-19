@@ -1,0 +1,24 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:VoxAssist.Desktop.ViewModels"
+        x:Class="VoxAssist.Desktop.Views.ProviderEditDialog"
+        x:DataType="vm:AiProviderViewModel"
+        Title="AI Provider Configuration" Width="400" Height="250"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+    <StackPanel Margin="20" Spacing="10">
+        <TextBlock Text="Provider Name:"/>
+        <TextBox Text="{Binding Name}"/>
+
+        <TextBlock Text="Host URL:"/>
+        <TextBox Text="{Binding HostUrl}"/>
+
+        <TextBlock Text="API Key:"/>
+        <TextBox Text="{Binding ApiKey}" PasswordChar="*"/>
+
+        <UniformGrid Columns="2" Margin="0,20,0,0">
+            <Button Content="Cancel" Click="CancelClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,10,0"/>
+            <Button Content="Save" Background="#33AA33" Click="SaveClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+        </UniformGrid>
+    </StackPanel>
+</Window>

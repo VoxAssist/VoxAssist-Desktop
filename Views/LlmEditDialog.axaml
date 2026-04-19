@@ -9,34 +9,43 @@
         CanResize="False">
     <Panel>
         <StackPanel x:Name="MainPanel" Margin="20" Spacing="10">
-            <TextBlock Text="Host URL:"/>
-            <TextBox Text="{Binding HostUrl}"/>
-            
-            <TextBlock Text="Model:"/>
+            <TextBlock Text="Provider:"/>
+            <Grid ColumnDefinitions="*,Auto">
+                <ComboBox ItemsSource="{Binding MainVm.AiProviders, RelativeSource={RelativeSource AncestorType=Views:LlmEditDialog}}" 
+                          SelectedValue="{Binding ProviderName}" 
+                          SelectedValueBinding="{Binding Name}"
+                          HorizontalAlignment="Stretch">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Name}"/>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Grid.Column="1" Content="+" Click="AddProviderClick" Margin="5,0,0,0" ToolTip.Tip="Add New Provider"/>
+            </Grid>
+
+            <TextBlock Text="Model Name:"/>
             <TextBox Text="{Binding Model}"/>
-            
-            <TextBlock Text="API Key:"/>
-            <TextBox Text="{Binding ApiKey}" PasswordChar="*"/>
-            
-            <CheckBox Content="Default" IsChecked="{Binding IsDefault}"/>
-            
-            <UniformGrid Columns="3" Margin="0,20,0,0">
-                <Button x:Name="DeleteButton" Content="Delete" Background="#AA3333" Click="DeleteClick" 
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,5,0"/>
-                <!-- Spacer if Delete is hidden -->
-                <Panel x:Name="DeleteSpacer" IsVisible="False"/> 
-                
-                <Button Content="Cancel" Click="CancelClick" 
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="5,0,5,0"/>
-                <Button Content="Save" Background="#33AA33" Click="SaveClick" 
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="5,0,0,0"/>
+
+            <CheckBox Content="Set as Primary Model" IsChecked="{Binding IsDefault}"/>
+
+            <UniformGrid Columns="2" Margin="0,20,0,0">
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="Delete" Background="#AA3333" Click="DeleteClick" 
+                            IsVisible="{Binding !IsNew, RelativeSource={RelativeSource AncestorType=Views:LlmEditDialog}}"
+                            Width="100" HorizontalContentAlignment="Center"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancel" Click="CancelClick" Width="80" HorizontalContentAlignment="Center" Margin="0,0,10,0"/>
+                    <Button Content="Save" Background="#33AA33" Click="SaveClick" Width="80" HorizontalContentAlignment="Center"/>
+                </StackPanel>
             </UniformGrid>
         </StackPanel>
 
         <StackPanel x:Name="ConfirmationPanel" Margin="20" Spacing="20" IsVisible="False" VerticalAlignment="Center">
             <TextBlock Text="Are you sure you want to delete this AI model configuration?" 
                        TextWrapping="Wrap" TextAlignment="Center" FontSize="16"/>
-            <UniformGrid Columns="2" HorizontalAlignment="Center" Width="300">
+            <UniformGrid Columns="2">
                 <Button Content="Yes, Delete" Background="#AA3333" Click="ConfirmDeleteClick" 
                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,10,0"/>
                 <Button Content="No, Keep it" Click="CancelDeleteClick" 

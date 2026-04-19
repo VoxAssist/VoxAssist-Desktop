@@ -36,5 +36,4 @@ public class UserConfig
     public string GrokApiKey { get; set; } = "";
     public string VoxAssistHostUrl { get; set; } = "";
     public List<ActionConfig> Actions { get; set; } = new();
-    public List<LlmConfig> Llms { get; set; } = new();
 }

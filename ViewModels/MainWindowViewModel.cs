@@ -284,9 +284,17 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                             HotkeyDisplay = "None"
                         });
                     }
+                }
+            }
 
+            if (File.Exists("ai_models.json"))
+            {
+                var json = File.ReadAllText("ai_models.json");
+                var models = System.Text.Json.JsonSerializer.Deserialize<List<LlmConfig>>(json);
+                if (models != null)
+                {
                     Llms.Clear();
-                    foreach (var l in config.Llms)
+                    foreach (var l in models)
                     {
                         Llms.Add(new LlmViewModel 
                         { 
@@ -484,19 +492,23 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                     Name = a.Name, 
                     Prompt = a.Prompt, 
                     LlmId = a.LlmId 
-                }).ToList(),
-                Llms = Llms.Select(l => new LlmConfig 
-                { 
-                    Id = l.Id, 
-                    HostUrl = l.HostUrl, 
-                    ApiKey = l.ApiKey, 
-                    Model = l.Model, 
-                    IsDefault = l.IsDefault 
                 }).ToList()
             };
 
             var json = System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText("settings.json", json);
+
+            var models = Llms.Select(l => new LlmConfig 
+            { 
+                Id = l.Id, 
+                HostUrl = l.HostUrl, 
+                ApiKey = l.ApiKey, 
+                Model = l.Model, 
+                IsDefault = l.IsDefault 
+            }).ToList();
+
+            var modelsJson = System.Text.Json.JsonSerializer.Serialize(models, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText("ai_models.json", modelsJson);
         }
         catch { }
     }

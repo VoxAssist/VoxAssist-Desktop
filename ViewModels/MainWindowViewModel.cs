@@ -236,7 +236,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private string _ledPattern = "Trace";
     public string LedPattern { get => _ledPattern; set { this.RaiseAndSetIfChanged(ref _ledPattern, value); if (_isInitialized) UpdateLedMode(); } }
 
-    private string _grokProvider = "";
+    private string _grokProvider = "xAI";
     public string GrokProvider { get => _grokProvider; set => this.RaiseAndSetIfChanged(ref _grokProvider, value); }
 
     private string _voxAssistHostUrl = "";

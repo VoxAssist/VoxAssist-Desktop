@@ -12,14 +12,14 @@ public partial class LlmEditDialog : Window
 
     public LlmEditDialog()
     {
-        InitializeComponent();
         MainVm = new MainWindowViewModel(); // Design-time fallback
+        InitializeComponent();
     }
 
     public LlmEditDialog(MainWindowViewModel mainVm)
     {
-        InitializeComponent();
         MainVm = mainVm;
+        InitializeComponent();
     }
 
     private void SaveClick(object sender, RoutedEventArgs e)

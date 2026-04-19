@@ -3,15 +3,16 @@
         xmlns:vm="using:VoxAssist.Desktop.ViewModels"
         xmlns:Views="using:VoxAssist.Desktop.Views"
         x:Class="VoxAssist.Desktop.Views.LlmEditDialog"
-        x:DataType="vm:LlmViewModel"
+        x:DataType="Views:LlmEditDialog"
+        x:Name="Root"
         Title="AI Model Configuration" Width="400" Height="350"
         WindowStartupLocation="CenterOwner"
         CanResize="False">
     <Panel>
-        <StackPanel x:Name="MainPanel" Margin="20" Spacing="10">
+        <StackPanel x:Name="MainPanel" Margin="20" Spacing="10" DataContext="{Binding #Root.DataContext}" x:DataType="vm:LlmViewModel">
             <TextBlock Text="Provider:"/>
             <Grid ColumnDefinitions="*,Auto">
-                <ComboBox ItemsSource="{Binding MainVm.AiProviders, RelativeSource={RelativeSource AncestorType=Views:LlmEditDialog}}" 
+                <ComboBox ItemsSource="{Binding #Root.MainVm.AiProviders}" 
                           SelectedValue="{Binding ProviderName}" 
                           SelectedValueBinding="{Binding Name}"
                           HorizontalAlignment="Stretch">
@@ -32,7 +33,7 @@
             <UniformGrid Columns="2" Margin="0,20,0,0">
                 <StackPanel Orientation="Horizontal">
                     <Button Content="Delete" Background="#AA3333" Click="DeleteClick" 
-                            IsVisible="{Binding !IsNew, RelativeSource={RelativeSource AncestorType=Views:LlmEditDialog}}"
+                            IsVisible="{Binding !#Root.IsNew}"
                             Width="100" HorizontalContentAlignment="Center"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

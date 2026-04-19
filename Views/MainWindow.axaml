@@ -87,8 +87,10 @@
                             </StackPanel>
 
                             <StackPanel Spacing="5">
-                                <TextBlock Text="AI Prompt:"/>
-                                <TextBox Text="{Binding SelectedAction.Prompt}" AcceptsReturn="True" TextWrapping="Wrap" Height="150"/>
+                                <TextBlock Text="Post-processing prompt:"/>
+                                <TextBox Text="{Binding SelectedAction.Prompt}" 
+                                         IsEnabled="{Binding IsPromptEnabled}"
+                                         AcceptsReturn="True" TextWrapping="Wrap" Height="150"/>
                             </StackPanel>
 
                             <StackPanel Spacing="5">

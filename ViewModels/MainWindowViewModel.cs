@@ -191,6 +191,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         { 
             this.RaiseAndSetIfChanged(ref _selectedAction, value); 
             this.RaisePropertyChanged(nameof(SelectedActionLlm));
+            this.RaisePropertyChanged(nameof(IsPromptEnabled));
         } 
     }
 
@@ -203,10 +204,13 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             {
                 SelectedAction.AiModel = value.Model == "Default" ? "" : value.Model;
                 this.RaisePropertyChanged(nameof(SelectedActionLlm));
+                this.RaisePropertyChanged(nameof(IsPromptEnabled));
                 SaveLocalData();
             }
         }
     }
+
+    public bool IsPromptEnabled => SelectedAction?.AiModel != "None";
     
     public ObservableCollection<LlmViewModel> Llms { get; } = new();
     public ObservableCollection<LlmViewModel> LlmSelectorItems { get; } = new();
@@ -222,7 +226,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             var llm = value;
             _selectedLlm = null;
             this.RaisePropertyChanged(nameof(SelectedLlm));
-            if (!string.IsNullOrEmpty(llm.Model) && llm.Model != "Default") EditLlm(llm);
+            if (!string.IsNullOrEmpty(llm.Model) && llm.Model != "Default" && llm.Model != "None") EditLlm(llm);
         } 
     }
 
@@ -289,14 +293,16 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             var settingsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings");
             if (!Directory.Exists(settingsDir)) Directory.CreateDirectory(settingsDir);
 
+            var assembly = Assembly.GetExecutingAssembly();
+            var assemblyName = assembly.GetName().Name;
+            
             string[] files = { "settings.json", "ai_models.json", "actions.json", "ai_providers.json" };
             foreach (var file in files)
             {
                 var filePath = Path.Combine(settingsDir, file);
                 if (!File.Exists(filePath))
                 {
-                    var assembly = Assembly.GetExecutingAssembly();
-                    var resourceName = $"VoxAssist.Desktop.Settings.{file}";
+                    var resourceName = $"{assemblyName}.Settings.{file}";
                     using var stream = assembly.GetManifestResourceStream(resourceName);
                     if (stream != null)
                     {
@@ -306,20 +312,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 }
             }
 
-            var settingsPath = Path.Combine(settingsDir, "settings.json");
-            if (File.Exists(settingsPath))
-            {
-                var json = File.ReadAllText(settingsPath);
-                var config = System.Text.Json.JsonSerializer.Deserialize<UserConfig>(json);
-                if (config != null)
-                {
-                    _isCcw = config.IsCcw;
-                    _isGrokStt = config.IsGrokStt;
-                    _grokApiKey = config.GrokApiKey;
-                    _voxAssistHostUrl = config.VoxAssistHostUrl;
-                }
-            }
-
+            // 1. Load Providers
             var providersPath = Path.Combine(settingsDir, "ai_providers.json");
             if (File.Exists(providersPath))
             {
@@ -328,13 +321,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 if (providers != null)
                 {
                     AiProviders.Clear();
-                    foreach (var p in providers)
-                    {
-                        AiProviders.Add(new AiProviderViewModel { Name = p.Name, HostUrl = p.HostUrl, ApiKey = p.ApiKey });
-                    }
+                    foreach (var p in providers) AiProviders.Add(new AiProviderViewModel { Name = p.Name, HostUrl = p.HostUrl, ApiKey = p.ApiKey });
                 }
             }
 
+            // 2. Load Models
             var modelsPath = Path.Combine(settingsDir, "ai_models.json");
             if (File.Exists(modelsPath))
             {
@@ -343,13 +334,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 if (models != null)
                 {
                     Llms.Clear();
-                    foreach (var l in models)
-                    {
-                        Llms.Add(new LlmViewModel { ProviderName = l.ProviderName, Model = l.Model, IsDefault = l.IsDefault });
-                    }
+                    foreach (var l in models) Llms.Add(new LlmViewModel { ProviderName = l.ProviderName, Model = l.Model, IsDefault = l.IsDefault });
                 }
             }
 
+            // 3. Load Actions
             var actionsPath = Path.Combine(settingsDir, "actions.json");
             if (File.Exists(actionsPath))
             {
@@ -366,26 +355,31 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                     }
                 }
             }
+
+            // 4. Load General Settings
+            var settingsPath = Path.Combine(settingsDir, "settings.json");
+            if (File.Exists(settingsPath))
+            {
+                var json = File.ReadAllText(settingsPath);
+                var config = System.Text.Json.JsonSerializer.Deserialize<UserConfig>(json);
+                if (config != null)
+                {
+                    _isCcw = config.IsCcw;
+                    _isGrokStt = config.IsGrokStt;
+                    _grokApiKey = config.GrokApiKey;
+                    _voxAssistHostUrl = config.VoxAssistHostUrl;
+                }
+            }
         }
         catch { }
 
+        // Fallbacks
         if (AiProviders.Count == 0) AiProviders.Add(new AiProviderViewModel { Name = "OpenAI", HostUrl = "https://api.openai.com/v1" });
         if (Llms.Count == 0) Llms.Add(new LlmViewModel { ProviderName = "OpenAI", Model = "gpt-4o", IsDefault = true });
-        
         if (Actions.Count == 0)
         {
-            Actions.Add(new ActionViewModel 
-            { 
-                Name = "Dictation", 
-                Prompt = "You are a voice assistant, taking dictation. Put the spoken intent into \"Keyboard\", removing filled pauses and self-corrections, and set 'Markdown' to an empty string. Convert squences of numbers into numerals.\nDo not offer unsolicited advice or follow-up comments.\nReply ONLY with valid JSON containing \"Keyboard\" and \"Markdown\" keys.", 
-                AiModel = "" 
-            });
-            Actions.Add(new ActionViewModel 
-            { 
-                Name = "Question", 
-                Prompt = "You are a voice assistant, that helps with simple one-shot queries. Keep your answer brief, and put that into \"Markdown\"\nIf you are asked to spell something, then put that into \"Keyboard\", nouns first letter can be capitalised, otherwise all lower case.\nReply ONLY with valid JSON containing \"Keyboard\" and \"Markdown\" keys.\n", 
-                AiModel = "" 
-            });
+            Actions.Add(new ActionViewModel { Name = "Dictation", Prompt = "You are a voice assistant...", AiModel = "" });
+            Actions.Add(new ActionViewModel { Name = "Question", Prompt = "You are a voice assistant...", AiModel = "" });
         }
         
         UpdateLlmSelector();
@@ -397,11 +391,12 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     {
         LlmSelectorItems.Clear();
         LlmSelectorItems.Add(new LlmViewModel { Model = "Default", ProviderName = "" });
+        LlmSelectorItems.Add(new LlmViewModel { Model = "None", ProviderName = "" });
         foreach (var llm in Llms) LlmSelectorItems.Add(llm);
 
         foreach (var action in Actions)
         {
-            if (!string.IsNullOrEmpty(action.AiModel) && !Llms.Any(l => l.Model == action.AiModel)) action.AiModel = "";
+            if (!string.IsNullOrEmpty(action.AiModel) && action.AiModel != "None" && !Llms.Any(l => l.Model == action.AiModel)) action.AiModel = "";
         }
     }
 
@@ -443,7 +438,6 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         if (actionId < 0 || actionId >= Actions.Count) return;
         var action = Actions[actionId];
 
-        // 1. Select Model
         var model = Llms.FirstOrDefault(l => l.Model == action.AiModel);
         if (model == null) model = Llms.FirstOrDefault(l => l.IsDefault);
 
@@ -453,7 +447,6 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        // 2. Check Provider/API Key
         var provider = AiProviders.FirstOrDefault(p => p.Name == model.ProviderName);
         if (provider == null || string.IsNullOrEmpty(provider.HostUrl) || string.IsNullOrEmpty(provider.ApiKey))
         {
@@ -461,10 +454,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        // 3. Start Recording
         Status = $"Action: {action.Name}";
         MicStatus = "Listening...";
-        _respeaker.SetLedMode(3); // Listen
+        _respeaker.SetLedMode(3); 
         _audioCapture.StartRecording(SelectedMic?.Name ?? "Default");
     }
 
@@ -474,10 +466,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         var audio = _audioCapture.StopRecording();
         
         MicStatus = "Processing...";
-        _respeaker.SetLedMode(5); // Think
+        _respeaker.SetLedMode(5); 
         Status = "Ready";
-        
-        // TODO: Send to STT -> LLM -> Action Execution
     }
 
     public async Task SetActionHotkey()

@@ -19,7 +19,6 @@ public class ActionConfig
     
     // Use readable matching instead of Guid
     public string AiModel { get; set; } = "";
-    public string AiHost { get; set; } = "";
 }
 
 public enum CompressionType

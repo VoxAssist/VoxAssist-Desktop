@@ -34,9 +34,6 @@ public class ActionViewModel : ViewModelBase
     private string _aiModel = "";
     public string AiModel { get => _aiModel; set => this.RaiseAndSetIfChanged(ref _aiModel, value); }
 
-    private string _aiHost = "";
-    public string AiHost { get => _aiHost; set => this.RaiseAndSetIfChanged(ref _aiHost, value); }
-
     public List<KeyCode> Hotkey { get; set; } = new();
 }
 
@@ -55,9 +52,6 @@ public class LlmViewModel : ViewModelBase
     public bool IsDefault { get => _isDefault; set => this.RaiseAndSetIfChanged(ref _isDefault, value); }
 
     public string DisplayName => Model + (IsDefault ? " (default)" : "");
-    
-    // Helper to identify the unique connection
-    public string UniqueKey => $"{Model}|{HostUrl}";
 }
 
 public class MicDevice
@@ -193,13 +187,12 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
     public LlmViewModel? SelectedActionLlm
     {
-        get => LlmSelectorItems.FirstOrDefault(l => (l.Model == SelectedAction?.AiModel && l.HostUrl == SelectedAction?.AiHost) || (l.Model == "Default" && string.IsNullOrEmpty(SelectedAction?.AiModel)));
+        get => LlmSelectorItems.FirstOrDefault(l => l.Model == SelectedAction?.AiModel || (l.Model == "Default" && string.IsNullOrEmpty(SelectedAction?.AiModel)));
         set
         {
             if (SelectedAction != null && value != null)
             {
                 SelectedAction.AiModel = value.Model == "Default" ? "" : value.Model;
-                SelectedAction.AiHost = value.HostUrl;
                 this.RaisePropertyChanged(nameof(SelectedActionLlm));
                 SaveLocalData();
             }
@@ -219,7 +212,6 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             var llm = value;
             _selectedLlm = null;
             this.RaisePropertyChanged(nameof(SelectedLlm));
-            // Only edit if it's not the "Default" placeholder
             if (!string.IsNullOrEmpty(llm.Model) && llm.Model != "Default") EditLlm(llm);
         } 
     }
@@ -343,7 +335,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                     Actions.Clear();
                     foreach (var a in actions)
                     {
-                        Actions.Add(new ActionViewModel { Name = a.Name, Prompt = a.Prompt, AiModel = a.AiModel, AiHost = a.AiHost, HotkeyDisplay = "None" });
+                        Actions.Add(new ActionViewModel { Name = a.Name, Prompt = a.Prompt, AiModel = a.AiModel, HotkeyDisplay = "None" });
                     }
                 }
             }
@@ -361,15 +353,13 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             { 
                 Name = "Dictation", 
                 Prompt = "You are a voice assistant, taking dictation. Put the spoken intent into \"Keyboard\", removing filled pauses and self-corrections, and set 'Markdown' to an empty string. Convert squences of numbers into numerals.\nDo not offer unsolicited advice or follow-up comments.\nReply ONLY with valid JSON containing \"Keyboard\" and \"Markdown\" keys.", 
-                AiModel = "", 
-                AiHost = "" 
+                AiModel = "" 
             });
             Actions.Add(new ActionViewModel 
             { 
                 Name = "Question", 
                 Prompt = "You are a voice assistant, that helps with simple one-shot queries. Keep your answer brief, and put that into \"Markdown\"\nIf you are asked to spell something, then put that into \"Keyboard\", nouns first letter can be capitalised, otherwise all lower case.\nReply ONLY with valid JSON containing \"Keyboard\" and \"Markdown\" keys.\n", 
-                AiModel = "", 
-                AiHost = "" 
+                AiModel = "" 
             });
         }
         
@@ -387,10 +377,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         foreach (var action in Actions)
         {
             // If the linked model no longer exists, reset to default
-            if (!string.IsNullOrEmpty(action.AiModel) && !Llms.Any(l => l.Model == action.AiModel && l.HostUrl == action.AiHost))
+            if (!string.IsNullOrEmpty(action.AiModel) && !Llms.Any(l => l.Model == action.AiModel))
             {
                 action.AiModel = "";
-                action.AiHost = "";
             }
         }
     }
@@ -445,7 +434,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
     public void AddAction() 
     { 
-        var newAction = new ActionViewModel { Name = "New Action", Prompt = "You are a helpfull voice assistant", AiModel = "", AiHost = "" }; 
+        var newAction = new ActionViewModel { Name = "New Action", Prompt = "You are a helpfull voice assistant", AiModel = "" }; 
         Actions.Add(newAction);
         SelectedAction = newAction;
         SaveLocalData();
@@ -540,7 +529,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             var json = System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(settingsDir, "settings.json"), json);
 
-            var actions = Actions.Select(a => new ActionConfig { Name = a.Name, Prompt = a.Prompt, AiModel = a.AiModel, AiHost = a.AiHost }).ToList();
+            var actions = Actions.Select(a => new ActionConfig { Name = a.Name, Prompt = a.Prompt, AiModel = a.AiModel }).ToList();
             var actionsJson = System.Text.Json.JsonSerializer.Serialize(actions, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(settingsDir, "actions.json"), actionsJson);
 

@@ -76,8 +76,7 @@
                             <StackPanel Spacing="5">
                                 <TextBlock Text="AI Model:"/>
                                 <ComboBox ItemsSource="{Binding LlmSelectorItems}" 
-                                          SelectedValue="{Binding SelectedAction.LlmId}" 
-                                          SelectedValueBinding="{Binding Id}"
+                                          SelectedItem="{Binding SelectedActionLlm}"
                                           HorizontalAlignment="Stretch">
                                     <ComboBox.ItemTemplate>
                                         <DataTemplate>

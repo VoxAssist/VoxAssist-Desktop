@@ -563,7 +563,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     {
         EditingGrokStt = true;
         EditingVoxStt = false;
-        var dialog = new SttConfigDialog(this) { DataContext = this };
+        var dialog = new SttConfigDialog(this);
+        dialog.DataContext = dialog;
         var mainWindow = GetMainWindow();
         if (mainWindow != null) 
         {
@@ -576,7 +577,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     {
         EditingGrokStt = false;
         EditingVoxStt = true;
-        var dialog = new SttConfigDialog(this) { DataContext = this };
+        var dialog = new SttConfigDialog(this);
+        dialog.DataContext = dialog;
         var mainWindow = GetMainWindow();
         if (mainWindow != null) 
         {

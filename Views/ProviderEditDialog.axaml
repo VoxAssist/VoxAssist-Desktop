@@ -3,7 +3,7 @@
         xmlns:vm="using:VoxAssist.Desktop.ViewModels"
         x:Class="VoxAssist.Desktop.Views.ProviderEditDialog"
         x:DataType="vm:AiProviderViewModel"
-        Title="AI Provider Configuration" Width="400" Height="250"
+        Title="AI Provider Configuration" Width="400" Height="300"
         WindowStartupLocation="CenterOwner"
         CanResize="False">
     <StackPanel Margin="20" Spacing="10">

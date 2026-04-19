@@ -468,14 +468,14 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         await EditLlm(newLlm, true);
     }
 
-    public async Task AddProvider()
+    public async Task AddProvider(Window? owner = null)
     {
         var newProvider = new AiProviderViewModel { Name = "New Provider", HostUrl = "" };
         var dialog = new ProviderEditDialog { DataContext = newProvider };
-        var mainWindow = GetMainWindow();
-        if (mainWindow == null) return;
+        var targetOwner = owner ?? GetMainWindow();
+        if (targetOwner == null) return;
 
-        var result = await dialog.ShowDialog<bool>(mainWindow);
+        var result = await dialog.ShowDialog<bool>(targetOwner);
         if (result)
         {
             AiProviders.Add(newProvider);

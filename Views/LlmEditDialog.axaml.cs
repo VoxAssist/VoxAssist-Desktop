@@ -52,6 +52,6 @@ public partial class LlmEditDialog : Window
 
     private async void AddProviderClick(object sender, RoutedEventArgs e)
     {
-        await MainVm.AddProvider();
+        await MainVm.AddProvider(this);
     }
 }

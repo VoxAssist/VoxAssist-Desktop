@@ -334,7 +334,10 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 if (models != null)
                 {
                     Llms.Clear();
-                    foreach (var l in models) Llms.Add(new LlmViewModel { ProviderName = l.ProviderName, Model = l.Model, IsDefault = l.IsDefault });
+                    foreach (var l in models)
+                    {
+                        Llms.Add(new LlmViewModel { ProviderName = l.ProviderName, Model = l.Model, IsDefault = l.IsDefault });
+                    }
                 }
             }
 
@@ -374,12 +377,23 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         catch { }
 
         // Fallbacks
-        if (AiProviders.Count == 0) AiProviders.Add(new AiProviderViewModel { Name = "OpenAI", HostUrl = "https://api.openai.com/v1" });
-        if (Llms.Count == 0) Llms.Add(new LlmViewModel { ProviderName = "OpenAI", Model = "gpt-4o", IsDefault = true });
+        if (AiProviders.Count == 0) AiProviders.Add(new AiProviderViewModel { Name = "xAI", HostUrl = "https://api.x.ai/v1" });
+        if (Llms.Count == 0) Llms.Add(new LlmViewModel { ProviderName = "xAI", Model = "grok-4.20-non-reasoning", IsDefault = true });
+        
         if (Actions.Count == 0)
         {
-            Actions.Add(new ActionViewModel { Name = "Dictation", Prompt = "You are a voice assistant...", AiModel = "" });
-            Actions.Add(new ActionViewModel { Name = "Question", Prompt = "You are a voice assistant...", AiModel = "" });
+            Actions.Add(new ActionViewModel 
+            { 
+                Name = "Dictation", 
+                Prompt = "You are a voice assistant, taking dictation. Put the spoken intent into \"Keyboard\", removing filled pauses and self-corrections, and set 'Markdown' to an empty string. Convert squences of numbers into numerals.\nDo not offer unsolicited advice or follow-up comments.\nReply ONLY with valid JSON containing \"Keyboard\" and \"Markdown\" keys.", 
+                AiModel = "" 
+            });
+            Actions.Add(new ActionViewModel 
+            { 
+                Name = "Question", 
+                Prompt = "You are a voice assistant, that helps with simple one-shot queries. Keep your answer brief, and put that into \"Markdown\"\nIf you are asked to spell something, then put that into \"Keyboard\", nouns first letter can be capitalised, otherwise all lower case.\nReply ONLY with valid JSON containing \"Keyboard\" and \"Markdown\" keys.\n", 
+                AiModel = "" 
+            });
         }
         
         UpdateLlmSelector();
@@ -437,6 +451,16 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     { 
         if (actionId < 0 || actionId >= Actions.Count) return;
         var action = Actions[actionId];
+
+        if (action.AiModel == "None")
+        {
+             // Start Recording directly, no AI check
+            Status = $"Action: {action.Name}";
+            MicStatus = "Listening...";
+            _respeaker.SetLedMode(3); 
+            _audioCapture.StartRecording(SelectedMic?.Name ?? "Default");
+            return;
+        }
 
         var model = Llms.FirstOrDefault(l => l.Model == action.AiModel);
         if (model == null) model = Llms.FirstOrDefault(l => l.IsDefault);

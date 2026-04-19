@@ -360,7 +360,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                     Actions.Clear();
                     foreach (var a in actions)
                     {
-                        Actions.Add(new ActionViewModel { Name = a.Name, Prompt = a.Prompt, AiModel = a.AiModel, HotkeyDisplay = "None" });
+                        var hotkey = string.IsNullOrEmpty(a.Hotkey) ? new List<KeyCode>() : a.Hotkey.Split(',').Select(s => (KeyCode)int.Parse(s)).ToList();
+                        var hotkeyDisplay = hotkey.Count > 0 ? string.Join(" + ", hotkey.Select(k => k.ToString().Replace("Vc", ""))) : "None";
+                        Actions.Add(new ActionViewModel { Name = a.Name, Prompt = a.Prompt, AiModel = a.AiModel, Hotkey = hotkey, HotkeyDisplay = hotkeyDisplay });
                     }
                 }
             }
@@ -406,6 +408,10 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private void UpdateHotkeyService()
     {
         var mapping = new Dictionary<int, List<KeyCode>>();
+        for (int i = 0; i < Actions.Count; i++)
+        {
+            if (Actions[i].Hotkey.Count > 0) mapping.Add(i, Actions[i].Hotkey);
+        }
         _hotkey.UpdateHotkeys(mapping);
     }
 
@@ -432,8 +438,47 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         _isInitialized = true;
     }
 
-    private async void OnHotKeyPressed(int actionId) { }
-    private async void OnHotKeyReleased(int actionId) { }
+    private void OnHotKeyPressed(int actionId) 
+    { 
+        if (actionId < 0 || actionId >= Actions.Count) return;
+        var action = Actions[actionId];
+
+        // 1. Select Model
+        var model = Llms.FirstOrDefault(l => l.Model == action.AiModel);
+        if (model == null) model = Llms.FirstOrDefault(l => l.IsDefault);
+
+        if (model == null)
+        {
+            Dispatcher.UIThread.Post(() => Conversation.Insert(0, $"Error: No AI Model configured for '{action.Name}' and no Default model found."));
+            return;
+        }
+
+        // 2. Check Provider/API Key
+        var provider = AiProviders.FirstOrDefault(p => p.Name == model.ProviderName);
+        if (provider == null || string.IsNullOrEmpty(provider.HostUrl) || string.IsNullOrEmpty(provider.ApiKey))
+        {
+            Dispatcher.UIThread.Post(() => Conversation.Insert(0, $"Error: Provider '{model.ProviderName}' for model '{model.Model}' is missing Host URL or API Key."));
+            return;
+        }
+
+        // 3. Start Recording
+        Status = $"Action: {action.Name}";
+        MicStatus = "Listening...";
+        _respeaker.SetLedMode(3); // Listen
+        _audioCapture.StartRecording(SelectedMic?.Name ?? "Default");
+    }
+
+    private void OnHotKeyReleased(int actionId) 
+    { 
+        if (!_audioCapture.IsRecording) return;
+        var audio = _audioCapture.StopRecording();
+        
+        MicStatus = "Processing...";
+        _respeaker.SetLedMode(5); // Think
+        Status = "Ready";
+        
+        // TODO: Send to STT -> LLM -> Action Execution
+    }
 
     public async Task SetActionHotkey()
     {
@@ -448,6 +493,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             SelectedAction.Hotkey = result;
             SelectedAction.HotkeyDisplay = string.Join(" + ", result.Select(k => k.ToString().Replace("Vc", "")));
             UpdateHotkeyService();
+            SaveLocalData();
         }
     }
 
@@ -567,7 +613,13 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             var providersJson = System.Text.Json.JsonSerializer.Serialize(providers, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(settingsDir, "ai_providers.json"), providersJson);
 
-            var actions = Actions.Select(a => new ActionConfig { Name = a.Name, Prompt = a.Prompt, AiModel = a.AiModel }).ToList();
+            var actions = Actions.Select(a => new ActionConfig 
+            { 
+                Name = a.Name, 
+                Prompt = a.Prompt, 
+                AiModel = a.AiModel,
+                Hotkey = string.Join(",", a.Hotkey.Select(k => (int)k))
+            }).ToList();
             var actionsJson = System.Text.Json.JsonSerializer.Serialize(actions, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(settingsDir, "actions.json"), actionsJson);
 

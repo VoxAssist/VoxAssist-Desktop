@@ -54,4 +54,12 @@ public partial class LlmEditDialog : Window
     {
         await MainVm.AddProvider(this);
     }
+
+    private async void EditProviderClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is LlmViewModel model && !string.IsNullOrEmpty(model.ProviderName))
+        {
+            await MainVm.EditProvider(model.ProviderName, this);
+        }
+    }
 }

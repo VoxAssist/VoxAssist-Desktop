@@ -543,6 +543,22 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
+    public async Task EditProvider(string providerName, Window? owner = null)
+    {
+        var provider = AiProviders.FirstOrDefault(p => p.Name == providerName);
+        if (provider == null) return;
+
+        var dialog = new ProviderEditDialog { DataContext = provider };
+        var targetOwner = owner ?? GetMainWindow();
+        if (targetOwner == null) return;
+
+        var result = await dialog.ShowDialog<bool>(targetOwner);
+        if (result)
+        {
+            SaveLocalData();
+        }
+    }
+
     public async Task EditGrokStt()
     {
         EditingGrokStt = true;

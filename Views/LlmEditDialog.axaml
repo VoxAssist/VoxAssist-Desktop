@@ -11,7 +11,7 @@
     <Panel>
         <StackPanel x:Name="MainPanel" Margin="20" Spacing="10" DataContext="{Binding #Root.DataContext}" x:DataType="vm:LlmViewModel">
             <TextBlock Text="Provider:"/>
-            <Grid ColumnDefinitions="*,Auto">
+            <Grid ColumnDefinitions="*,Auto,Auto">
                 <ComboBox ItemsSource="{Binding #Root.MainVm.AiProviders}" 
                           SelectedValue="{Binding ProviderName}" 
                           SelectedValueBinding="{Binding Name}"
@@ -22,7 +22,8 @@
                         </DataTemplate>
                     </ComboBox.ItemTemplate>
                 </ComboBox>
-                <Button Grid.Column="1" Content="+" Click="AddProviderClick" Margin="5,0,0,0" ToolTip.Tip="Add New Provider"/>
+                <Button Grid.Column="1" Content="Edit" Click="EditProviderClick" Margin="5,0,0,0" ToolTip.Tip="Edit Selected Provider"/>
+                <Button Grid.Column="2" Content="+" Click="AddProviderClick" Margin="5,0,0,0" ToolTip.Tip="Add New Provider"/>
             </Grid>
 
             <TextBlock Text="Model Name:"/>

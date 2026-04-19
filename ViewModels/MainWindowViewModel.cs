@@ -357,7 +357,20 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         
         if (Actions.Count == 0)
         {
-            Actions.Add(new ActionViewModel { Name = "Example Action", Prompt = "You are a helpfull voice assistant", AiModel = "", AiHost = "" });
+            Actions.Add(new ActionViewModel 
+            { 
+                Name = "Dictation", 
+                Prompt = "You are a voice assistant, taking dictation. Put the spoken intent into \"Keyboard\", removing filled pauses and self-corrections, and set 'Markdown' to an empty string. Convert squences of numbers into numerals.\nDo not offer unsolicited advice or follow-up comments.\nReply ONLY with valid JSON containing \"Keyboard\" and \"Markdown\" keys.", 
+                AiModel = "", 
+                AiHost = "" 
+            });
+            Actions.Add(new ActionViewModel 
+            { 
+                Name = "Question", 
+                Prompt = "You are a voice assistant, that helps with simple one-shot queries. Keep your answer brief, and put that into \"Markdown\"\nIf you are asked to spell something, then put that into \"Keyboard\", nouns first letter can be capitalised, otherwise all lower case.\nReply ONLY with valid JSON containing \"Keyboard\" and \"Markdown\" keys.\n", 
+                AiModel = "", 
+                AiHost = "" 
+            });
         }
         
         UpdateLlmSelector();

@@ -185,7 +185,7 @@
                                     <Button Grid.Column="1" Content="Edit" Command="{Binding EditGrokStt}"/>
                                 </Grid>
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <RadioButton Content="VoxAssist-Server" IsChecked="{Binding IsGrokStt, Converter={x:Static BoolConverters.Not}}"/>
+                                    <RadioButton Content="VoxAssist-Server" IsChecked="{Binding IsGrokStt, Converter={StaticResource InverseBoolConverter}}"/>
                                     <Button Grid.Column="1" Content="Edit" Command="{Binding EditVoxStt}"/>
                                 </Grid>
                             </StackPanel>
@@ -204,14 +204,6 @@
                                 </ListBox.ItemTemplate>
                             </ListBox>
                         </DockPanel>
-
-                        <Border BorderBrush="#333" BorderThickness="1" Margin="0,20,0,0" Padding="15" CornerRadius="8">
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="About VoxAssist" FontWeight="Bold"/>
-                                <TextBlock Text="Voice-to-Action Automation System" Foreground="Gray"/>
-                                <TextBlock Text="v1.0.0-standalone" FontSize="10" Foreground="#666"/>
-                            </StackPanel>
-                        </Border>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

@@ -17,7 +17,7 @@ public class AudioCaptureService
 
     public async Task<List<KeyValuePair<string, string>>> GetAvailableSourcesAsync()
     {
-        var sources = new List<KeyValuePair<string, string>> { new("Default", "Default") };
+        var sources = new List<KeyValuePair<string, string>> { new("System Default", "Default") };
         try
         {
             var psi = new ProcessStartInfo
@@ -69,7 +69,7 @@ public class AudioCaptureService
         _audioData = new MemoryStream();
         IsRecording = true;
 
-        string deviceArg = source == "Default" ? "" : $"-d {source}";
+        string deviceArg = (source == "Default" || source == "System Default") ? "" : $"-d {source}";
 
         _recordingProcess = new Process
         {

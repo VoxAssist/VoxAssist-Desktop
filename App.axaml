@@ -10,6 +10,7 @@
         <conv:BoolToConnectedConverter x:Key="BoolToConnectedConverter"/>
         <conv:BoolToColorConverter x:Key="BoolToColorConverter"/>
         <conv:BoolToFreezeTextConverter x:Key="BoolToFreezeTextConverter"/>
+        <conv:InverseBoolConverter x:Key="InverseBoolConverter"/>
         <conv:CompressionNameConverter x:Key="CompressionNameConverter"/>
         <conv:MicStatusColorConverter x:Key="MicStatusColorConverter"/>
     </Application.Resources>

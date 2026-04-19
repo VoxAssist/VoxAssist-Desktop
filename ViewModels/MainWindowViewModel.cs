@@ -87,7 +87,15 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     public int DoaAngle { get => _doaAngle; set => this.RaiseAndSetIfChanged(ref _doaAngle, value); }
 
     private bool _isCcw;
-    public bool IsCcw { get => _isCcw; set => this.RaiseAndSetIfChanged(ref _isCcw, value); }
+    public bool IsCcw 
+    { 
+        get => _isCcw; 
+        set 
+        { 
+            this.RaiseAndSetIfChanged(ref _isCcw, value); 
+            SaveLocalData();
+        } 
+    }
 
     private bool _isInitialized = false;
 
@@ -206,7 +214,15 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     public string VoxAssistHostUrl { get => _voxAssistHostUrl; set => this.RaiseAndSetIfChanged(ref _voxAssistHostUrl, value); }
 
     private bool _isGrokStt = true;
-    public bool IsGrokStt { get => _isGrokStt; set => this.RaiseAndSetIfChanged(ref _isGrokStt, value); }
+    public bool IsGrokStt 
+    { 
+        get => _isGrokStt; 
+        set 
+        { 
+            this.RaiseAndSetIfChanged(ref _isGrokStt, value); 
+            SaveLocalData();
+        } 
+    }
 
     private bool _editingGrokStt;
     public bool EditingGrokStt { get => _editingGrokStt; set => this.RaiseAndSetIfChanged(ref _editingGrokStt, value); }
@@ -243,13 +259,59 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
     private void LoadLocalData()
     {
-        Actions.Clear();
-        Llms.Clear();
+        try
+        {
+            if (File.Exists("settings.json"))
+            {
+                var json = File.ReadAllText("settings.json");
+                var config = System.Text.Json.JsonSerializer.Deserialize<UserConfig>(json);
+                if (config != null)
+                {
+                    _isCcw = config.IsCcw;
+                    _isGrokStt = config.IsGrokStt;
+                    _grokApiKey = config.GrokApiKey;
+                    _voxAssistHostUrl = config.VoxAssistHostUrl;
+
+                    Actions.Clear();
+                    foreach (var a in config.Actions)
+                    {
+                        Actions.Add(new ActionViewModel 
+                        { 
+                            Id = a.Id, 
+                            Name = a.Name, 
+                            Prompt = a.Prompt, 
+                            LlmId = a.LlmId,
+                            HotkeyDisplay = "None"
+                        });
+                    }
+
+                    Llms.Clear();
+                    foreach (var l in config.Llms)
+                    {
+                        Llms.Add(new LlmViewModel 
+                        { 
+                            Id = l.Id, 
+                            HostUrl = l.HostUrl, 
+                            ApiKey = l.ApiKey, 
+                            Model = l.Model, 
+                            IsDefault = l.IsDefault 
+                        });
+                    }
+                }
+            }
+        }
+        catch { }
+
+        if (Llms.Count == 0)
+        {
+            var defaultLlm = new LlmViewModel { Id = Guid.NewGuid(), HostUrl = "https://api.openai.com/v1", Model = "gpt-4o", IsDefault = true };
+            Llms.Add(defaultLlm);
+        }
         
-        var defaultLlm = new LlmViewModel { Id = Guid.NewGuid(), HostUrl = "https://api.openai.com/v1", Model = "gpt-4o", IsDefault = true };
-        Llms.Add(defaultLlm);
-        
-        Actions.Add(new ActionViewModel { Id = Guid.NewGuid(), Name = "Example Action", Prompt = "Help me with...", LlmId = Guid.Empty }); // Default
+        if (Actions.Count == 0)
+        {
+            Actions.Add(new ActionViewModel { Id = Guid.NewGuid(), Name = "Example Action", Prompt = "You are a helpfull voice assistant", LlmId = Guid.Empty });
+        }
         
         UpdateLlmSelector();
         UpdateHotkeyService();
@@ -322,13 +384,14 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
     public void AddAction() 
     { 
-        var newAction = new ActionViewModel { Id = Guid.NewGuid(), Name = "New Action", Prompt = "Prompt here...", LlmId = Guid.Empty }; 
+        var newAction = new ActionViewModel { Id = Guid.NewGuid(), Name = "New Action", Prompt = "You are a helpfull voice assistant", LlmId = Guid.Empty }; 
         Actions.Add(newAction);
         SelectedAction = newAction;
+        SaveLocalData();
     }
     
-    public void SaveSelectedAction() { }
-    public void DeleteSelectedAction() { if (SelectedAction != null) Actions.Remove(SelectedAction); }
+    public void SaveSelectedAction() { SaveLocalData(); }
+    public void DeleteSelectedAction() { if (SelectedAction != null) { Actions.Remove(SelectedAction); SaveLocalData(); } }
 
     public async Task AddLlm()
     {
@@ -342,7 +405,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         EditingVoxStt = false;
         var dialog = new SttConfigDialog { DataContext = this };
         var mainWindow = GetMainWindow();
-        if (mainWindow != null) await dialog.ShowDialog<bool>(mainWindow);
+        if (mainWindow != null) 
+        {
+            await dialog.ShowDialog<bool>(mainWindow);
+            SaveLocalData();
+        }
     }
 
     public async Task EditVoxStt()
@@ -351,7 +418,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         EditingVoxStt = true;
         var dialog = new SttConfigDialog { DataContext = this };
         var mainWindow = GetMainWindow();
-        if (mainWindow != null) await dialog.ShowDialog<bool>(mainWindow);
+        if (mainWindow != null) 
+        {
+            await dialog.ShowDialog<bool>(mainWindow);
+            SaveLocalData();
+        }
     }
 
     private async Task EditLlm(LlmViewModel llm, bool isNew = false)
@@ -377,6 +448,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 foreach (var l in Llms) l.RaisePropertyChanged(nameof(l.DisplayName));
             }
             UpdateLlmSelector();
+            SaveLocalData();
         }
     }
 
@@ -394,6 +466,39 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         if (LedPattern == "Off") _respeaker.SetLedMono(0,0,0);
         else if (LedPattern == "Mono") _respeaker.SetLedMono(255,0,0);
         else _respeaker.SetLedMode(mode);
+    }
+
+    private void SaveLocalData()
+    {
+        try
+        {
+            var config = new UserConfig
+            {
+                IsCcw = IsCcw,
+                IsGrokStt = IsGrokStt,
+                GrokApiKey = GrokApiKey,
+                VoxAssistHostUrl = VoxAssistHostUrl,
+                Actions = Actions.Select(a => new ActionConfig 
+                { 
+                    Id = a.Id, 
+                    Name = a.Name, 
+                    Prompt = a.Prompt, 
+                    LlmId = a.LlmId 
+                }).ToList(),
+                Llms = Llms.Select(l => new LlmConfig 
+                { 
+                    Id = l.Id, 
+                    HostUrl = l.HostUrl, 
+                    ApiKey = l.ApiKey, 
+                    Model = l.Model, 
+                    IsDefault = l.IsDefault 
+                }).ToList()
+            };
+
+            var json = System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText("settings.json", json);
+        }
+        catch { }
     }
 
     public void ReconnectRespeaker() => _respeaker.TryConnect();

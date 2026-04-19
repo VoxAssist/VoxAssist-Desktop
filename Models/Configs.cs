@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace VoxAssist.Desktop.Models;
 
@@ -26,4 +27,14 @@ public enum CompressionType
     None,
     G711,
     Flac
+}
+
+public class UserConfig
+{
+    public bool IsCcw { get; set; }
+    public bool IsGrokStt { get; set; } = true;
+    public string GrokApiKey { get; set; } = "";
+    public string VoxAssistHostUrl { get; set; } = "";
+    public List<ActionConfig> Actions { get; set; } = new();
+    public List<LlmConfig> Llms { get; set; } = new();
 }

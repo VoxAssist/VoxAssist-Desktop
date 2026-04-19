@@ -236,8 +236,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private string _ledPattern = "Trace";
     public string LedPattern { get => _ledPattern; set { this.RaiseAndSetIfChanged(ref _ledPattern, value); if (_isInitialized) UpdateLedMode(); } }
 
-    private string _sttProviderName = "";
-    public string SttProviderName { get => _sttProviderName; set => this.RaiseAndSetIfChanged(ref _sttProviderName, value); }
+    private string _grokProvider = "";
+    public string GrokProvider { get => _grokProvider; set => this.RaiseAndSetIfChanged(ref _grokProvider, value); }
 
     private string _voxAssistHostUrl = "";
     public string VoxAssistHostUrl { get => _voxAssistHostUrl; set => this.RaiseAndSetIfChanged(ref _voxAssistHostUrl, value); }
@@ -369,7 +369,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 {
                     _isCcw = config.IsCcw;
                     _isGrokStt = config.IsGrokStt;
-                    _sttProviderName = config.SttProviderName;
+                    _grokProvider = config.GrokProvider;
                     _voxAssistHostUrl = config.VoxAssistHostUrl;
                 }
             }
@@ -635,7 +635,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             var settingsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings");
             if (!Directory.Exists(settingsDir)) Directory.CreateDirectory(settingsDir);
 
-            var config = new UserConfig { IsCcw = IsCcw, IsGrokStt = IsGrokStt, SttProviderName = SttProviderName, VoxAssistHostUrl = VoxAssistHostUrl };
+            var config = new UserConfig { IsCcw = IsCcw, IsGrokStt = IsGrokStt, GrokProvider = GrokProvider, VoxAssistHostUrl = VoxAssistHostUrl };
             var json = System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(settingsDir, "settings.json"), json);
 

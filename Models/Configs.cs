@@ -38,6 +38,6 @@ public class UserConfig
 {
     public bool IsCcw { get; set; }
     public bool IsGrokStt { get; set; } = true;
-    public string SttProviderName { get; set; } = "";
+    public string GrokProvider { get; set; } = "";
     public string VoxAssistHostUrl { get; set; } = "";
 }

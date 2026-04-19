@@ -37,9 +37,9 @@ public partial class SttConfigDialog : Window
 
     private async void EditProviderClick(object sender, RoutedEventArgs e)
     {
-        if (!string.IsNullOrEmpty(MainVm.SttProviderName))
+        if (!string.IsNullOrEmpty(MainVm.GrokProvider))
         {
-            await MainVm.EditProvider(MainVm.SttProviderName, this);
+            await MainVm.EditProvider(MainVm.GrokProvider, this);
         }
     }
 }

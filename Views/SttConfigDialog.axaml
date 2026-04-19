@@ -14,7 +14,7 @@
             <TextBlock Text="Grok Provider:"/>
             <Grid ColumnDefinitions="*,Auto,Auto">
                 <ComboBox ItemsSource="{Binding AiProviders}" 
-                          SelectedValue="{Binding SttProviderName}" 
+                          SelectedValue="{Binding GrokProvider}" 
                           SelectedValueBinding="{Binding Name}"
                           HorizontalAlignment="Stretch">
                     <ComboBox.ItemTemplate>

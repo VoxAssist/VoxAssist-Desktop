@@ -35,5 +35,4 @@ public class UserConfig
     public bool IsGrokStt { get; set; } = true;
     public string GrokApiKey { get; set; } = "";
     public string VoxAssistHostUrl { get; set; } = "";
-    public List<ActionConfig> Actions { get; set; } = new();
 }

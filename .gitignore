@@ -18,7 +18,6 @@ Thumbs.db
 
 # Project specific
 *.DotSettings.user
-settings.json
-ai_models.json
+Settings/*.json
 appsettings.json
 *.env

@@ -11,6 +11,7 @@ using Avalonia.Threading;
 using System.Net.Http;
 using System.Net;
 using System.IO;
+using System.Reflection;
 using VoxAssist.Desktop.Views;
 using Avalonia.Controls;
 using Avalonia;
@@ -261,9 +262,32 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     {
         try
         {
-            if (File.Exists("settings.json"))
+            var settingsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings");
+            if (!Directory.Exists(settingsDir)) Directory.CreateDirectory(settingsDir);
+
+            string[] files = { "settings.json", "ai_models.json", "actions.json" };
+            foreach (var file in files)
             {
-                var json = File.ReadAllText("settings.json");
+                var filePath = Path.Combine(settingsDir, file);
+                if (!File.Exists(filePath))
+                {
+                    // Fallback to embedded resource
+                    var assembly = Assembly.GetExecutingAssembly();
+                    var resourceName = $"VoxAssist.Desktop.Settings.{file}";
+                    using var stream = assembly.GetManifestResourceStream(resourceName);
+                    if (stream != null)
+                    {
+                        using var reader = new StreamReader(stream);
+                        File.WriteAllText(filePath, reader.ReadToEnd());
+                    }
+                }
+            }
+
+            // Load settings.json
+            var settingsPath = Path.Combine(settingsDir, "settings.json");
+            if (File.Exists(settingsPath))
+            {
+                var json = File.ReadAllText(settingsPath);
                 var config = System.Text.Json.JsonSerializer.Deserialize<UserConfig>(json);
                 if (config != null)
                 {
@@ -271,9 +295,19 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                     _isGrokStt = config.IsGrokStt;
                     _grokApiKey = config.GrokApiKey;
                     _voxAssistHostUrl = config.VoxAssistHostUrl;
+                }
+            }
 
+            // Load actions.json
+            var actionsPath = Path.Combine(settingsDir, "actions.json");
+            if (File.Exists(actionsPath))
+            {
+                var json = File.ReadAllText(actionsPath);
+                var actions = System.Text.Json.JsonSerializer.Deserialize<List<ActionConfig>>(json);
+                if (actions != null)
+                {
                     Actions.Clear();
-                    foreach (var a in config.Actions)
+                    foreach (var a in actions)
                     {
                         Actions.Add(new ActionViewModel 
                         { 
@@ -287,9 +321,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 }
             }
 
-            if (File.Exists("ai_models.json"))
+            // Load ai_models.json
+            var modelsPath = Path.Combine(settingsDir, "ai_models.json");
+            if (File.Exists(modelsPath))
             {
-                var json = File.ReadAllText("ai_models.json");
+                var json = File.ReadAllText(modelsPath);
                 var models = System.Text.Json.JsonSerializer.Deserialize<List<LlmConfig>>(json);
                 if (models != null)
                 {
@@ -480,24 +516,32 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     {
         try
         {
+            var settingsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings");
+            if (!Directory.Exists(settingsDir)) Directory.CreateDirectory(settingsDir);
+
+            // Save settings.json
             var config = new UserConfig
             {
                 IsCcw = IsCcw,
                 IsGrokStt = IsGrokStt,
                 GrokApiKey = GrokApiKey,
-                VoxAssistHostUrl = VoxAssistHostUrl,
-                Actions = Actions.Select(a => new ActionConfig 
-                { 
-                    Id = a.Id, 
-                    Name = a.Name, 
-                    Prompt = a.Prompt, 
-                    LlmId = a.LlmId 
-                }).ToList()
+                VoxAssistHostUrl = VoxAssistHostUrl
             };
-
             var json = System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText("settings.json", json);
+            File.WriteAllText(Path.Combine(settingsDir, "settings.json"), json);
 
+            // Save actions.json
+            var actions = Actions.Select(a => new ActionConfig 
+            { 
+                Id = a.Id, 
+                Name = a.Name, 
+                Prompt = a.Prompt, 
+                LlmId = a.LlmId 
+            }).ToList();
+            var actionsJson = System.Text.Json.JsonSerializer.Serialize(actions, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(Path.Combine(settingsDir, "actions.json"), actionsJson);
+
+            // Save ai_models.json
             var models = Llms.Select(l => new LlmConfig 
             { 
                 Id = l.Id, 
@@ -506,9 +550,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 Model = l.Model, 
                 IsDefault = l.IsDefault 
             }).ToList();
-
             var modelsJson = System.Text.Json.JsonSerializer.Serialize(models, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText("ai_models.json", modelsJson);
+            File.WriteAllText(Path.Combine(settingsDir, "ai_models.json"), modelsJson);
         }
         catch { }
     }

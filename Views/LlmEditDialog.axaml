@@ -4,7 +4,7 @@
         xmlns:Views="using:VoxAssist.Desktop.Views"
         x:Class="VoxAssist.Desktop.Views.LlmEditDialog"
         x:DataType="vm:LlmViewModel"
-        Title="LLM Configuration" Width="400" Height="350"
+        Title="AI Model Configuration" Width="400" Height="350"
         WindowStartupLocation="CenterOwner"
         CanResize="False">
     <Panel>
@@ -34,7 +34,7 @@
         </StackPanel>
 
         <StackPanel x:Name="ConfirmationPanel" Margin="20" Spacing="20" IsVisible="False" VerticalAlignment="Center">
-            <TextBlock Text="Are you sure you want to delete this LLM configuration?" 
+            <TextBlock Text="Are you sure you want to delete this AI model configuration?" 
                        TextWrapping="Wrap" TextAlignment="Center" FontSize="16"/>
             <UniformGrid Columns="2" HorizontalAlignment="Center" Width="300">
                 <Button Content="Yes, Delete" Background="#AA3333" Click="ConfirmDeleteClick" 

@@ -1,80 +1,145 @@
 using System;
-using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
+using ManagedBass;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace VoxAssist.Desktop.Services;
 
-public class SoundService
+public class SoundService : IDisposable
 {
-    private readonly string _chirpPath = "/tmp/voxassist_chirp.wav";
+    private int _chirpSample;
+    private int _errorSample;
 
     public SoundService()
     {
-        PreGenerateChirp();
+        // Initialize BASS with default device
+        if (Bass.Init() || Bass.LastError == Errors.Already)
+        {
+            // Set a few config options for lower latency
+            Bass.Configure(Configuration.PlaybackBufferLength, 100);
+            Bass.Configure(Configuration.UpdatePeriod, 10);
+            
+            // "Warm up" the device by starting/stopping a dummy output
+            Bass.Start();
+            
+            LoadSounds();
+        }
     }
 
-    private void PreGenerateChirp()
+    private void LoadSounds()
     {
         try
         {
-            if (File.Exists(_chirpPath)) File.Delete(_chirpPath);
-            
-            // Using a more standard ffmpeg command to ensure it creates a valid WAV
-            var psi = new ProcessStartInfo
-            {
-                FileName = "ffmpeg",
-                Arguments = $"-y -f lavfi -i \"sine=frequency=1000:duration=0.05\" -ar 44100 -ac 1 \"{_chirpPath}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            var process = Process.Start(psi);
-            process?.WaitForExit();
-            
-            if (!File.Exists(_chirpPath))
-            {
-                Console.WriteLine("SoundService: Failed to generate chirp file.");
-            }
+            _chirpSample = CreateSineSample(1200, 0.03f, 44100); // 30ms Pip at 1200Hz
+            _errorSample = CreateSineSample(400, 0.2f, 44100);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"SoundService Error: {ex.Message}");
+            Console.WriteLine($"SoundService Load Error: {ex.Message}");
         }
     }
 
-    public void PlayChirp()
+    private int CreateSineSample(float frequency, float duration, int sampleRate)
     {
-        RunChirp();
-    }
+        int channels = 1;
+        int bitsPerSample = 16;
+        int numSamples = (int)(sampleRate * duration);
+        int dataSize = numSamples * channels * (bitsPerSample / 8);
 
-    public void PlayDoubleChirp()
-    {
-        Task.Run(async () =>
+        // Generate Sine Wave Data
+        byte[] pcmData = new byte[dataSize];
+        for (int i = 0; i < numSamples; i++)
         {
-            RunChirp();
-            await Task.Delay(150);
-            RunChirp();
-        });
-    }
+            short value = (short)(Math.Sin(2 * Math.PI * frequency * i / sampleRate) * 32767); // 100% volume
+            pcmData[i * 2] = (byte)(value & 0xFF);
+            pcmData[i * 2 + 1] = (byte)((value >> 8) & 0xFF);
+        }
 
-    private void RunChirp()
-    {
-        if (!File.Exists(_chirpPath)) return;
+
+        // Create a WAV header in memory so BASS can load it as a sample
+        using var ms = new MemoryStream();
+        using var writer = new BinaryWriter(ms);
+        writer.Write("RIFF".ToCharArray());
+        writer.Write(36 + dataSize);
+        writer.Write("WAVE".ToCharArray());
+        writer.Write("fmt ".ToCharArray());
+        writer.Write(16); // subchunk1size
+        writer.Write((short)1); // audioformat (PCM)
+        writer.Write((short)channels);
+        writer.Write(sampleRate);
+        writer.Write(sampleRate * channels * bitsPerSample / 8); // byte rate
+        writer.Write((short)(channels * bitsPerSample / 8)); // block align
+        writer.Write((short)bitsPerSample);
+        writer.Write("data".ToCharArray());
+        writer.Write(dataSize);
+        writer.Write(pcmData);
+
+        byte[] wavBytes = ms.ToArray();
         
+        // Load into BASS sample
+        GCHandle pinnedArray = GCHandle.Alloc(wavBytes, GCHandleType.Pinned);
         try
         {
-            // paplay is synchronous but we want it non-blocking for the UI
-            Task.Run(() => {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "paplay",
-                    Arguments = $"\"{_chirpPath}\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                Process.Start(psi)?.WaitForExit();
+            return Bass.SampleLoad(pinnedArray.AddrOfPinnedObject(), 0, wavBytes.Length, 3, BassFlags.Default);
+        }
+        finally
+        {
+            pinnedArray.Free();
+        }
+    }
+
+    public void PlayChirp(bool sync = false)
+    {
+        if (_chirpSample == 0) return;
+        
+        var channel = Bass.SampleGetChannel(_chirpSample);
+        Bass.ChannelPlay(channel);
+
+        if (sync)
+        {
+            Thread.Sleep(60);
+        }
+    }
+
+    public void PlayDoubleChirp(bool sync = false)
+    {
+        if (sync)
+        {
+            PlayChirp(true);
+            Thread.Sleep(150);
+            PlayChirp(true);
+        }
+        else
+        {
+            Task.Run(async () =>
+            {
+                PlayChirp(true);
+                await Task.Delay(150);
+                PlayChirp(true);
             });
         }
-        catch { }
+    }
+
+    public void PlayError(bool sync = false)
+    {
+        if (_errorSample == 0) return;
+
+        var channel = Bass.SampleGetChannel(_errorSample);
+        Bass.ChannelPlay(channel);
+
+        if (sync)
+        {
+            Thread.Sleep(210);
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_chirpSample != 0) Bass.SampleFree(_chirpSample);
+        if (_errorSample != 0) Bass.SampleFree(_errorSample);
+        Bass.Free();
     }
 }

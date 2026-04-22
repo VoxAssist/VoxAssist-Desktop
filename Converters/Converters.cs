@@ -54,10 +54,42 @@ public class MicStatusColorConverter : IValueConverter
     {
         return value?.ToString() switch
         {
-            "Listening" => Brushes.Lime,
+            "Listening..." => Brushes.Lime,
+            "Processing..." => Brushes.Yellow,
+            "Finalizing..." => Brushes.Orange,
             "Ready" => Brushes.White,
             _ => Brushes.Gray
         };
+    }
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
+}
+
+public class PrefixConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is string text && text.Contains(": "))
+        {
+            return text.Substring(0, text.IndexOf(": ") + 1);
+        }
+        return "";
+    }
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
+}
+
+public class MessageConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is string text)
+        {
+            if (text.Contains(": "))
+            {
+                return text.Substring(text.IndexOf(": ") + 1);
+            }
+            return text;
+        }
+        return "";
     }
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }

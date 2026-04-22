@@ -38,7 +38,7 @@
                             Width="100" HorizontalContentAlignment="Center"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="Cancel" Click="CancelClick" Width="80" HorizontalContentAlignment="Center" Margin="0,0,10,0"/>
+                    <Button Content="Cancel" Click="CancelClick" Width="80" HorizontalContentAlignment="Center" Margin="0,0,10,0" HotKey="Escape"/>
                     <Button Content="Save" Background="#33AA33" Click="SaveClick" Width="80" HorizontalContentAlignment="Center"/>
                 </StackPanel>
             </UniformGrid>

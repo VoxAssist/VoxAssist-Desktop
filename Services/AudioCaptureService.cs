@@ -4,61 +4,36 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using ManagedBass;
+using System.Runtime.InteropServices;
 
 namespace VoxAssist.Desktop.Services;
 
-public class AudioCaptureService
+public class AudioCaptureService : IDisposable
 {
-    private Process? _recordingProcess;
+    private int _recordHandle;
     private MemoryStream? _audioData;
+    private RecordProcedure? _recordProcedure;
     public bool IsRecording { get; private set; }
 
     public event Action<byte[]>? DataAvailable;
 
+    public AudioCaptureService()
+    {
+        // Initialize BASS for recording
+        // We don't initialize here to allow it to be done on the correct device if needed
+    }
+
     public async Task<List<KeyValuePair<string, string>>> GetAvailableSourcesAsync()
     {
         var sources = new List<KeyValuePair<string, string>> { new("System Default", "Default") };
-        try
+        
+        // BASS device enumeration
+        for (int i = 0; Bass.RecordGetDeviceInfo(i, out var info); i++)
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "pactl",
-                Arguments = "list sources",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var process = Process.Start(psi);
-            if (process != null)
-            {
-                var output = await process.StandardOutput.ReadToEndAsync();
-                await process.WaitForExitAsync();
-                
-                var blocks = output.Split(new[] { "Source #" }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (var block in blocks)
-                {
-                    var lines = block.Split('\n');
-                    string name = "";
-                    string description = "";
-                    
-                    foreach(var line in lines)
-                    {
-                        var trimmed = line.Trim();
-                        if (trimmed.StartsWith("Name:")) name = trimmed.Replace("Name: ", "");
-                        if (trimmed.StartsWith("Description:")) description = trimmed.Replace("Description: ", "");
-                    }
-
-                    if (!string.IsNullOrEmpty(name) && 
-                        !name.Contains(".monitor") && 
-                        !name.Contains("combined") &&
-                        !name.Contains("respeaker_aec"))
-                    {
-                        sources.Add(new KeyValuePair<string, string>(name, description));
-                    }
-                }
-            }
+            sources.Add(new KeyValuePair<string, string>(i.ToString(), info.Name));
         }
-        catch { }
+
         return sources;
     }
 
@@ -66,69 +41,68 @@ public class AudioCaptureService
     {
         if (IsRecording) return;
 
-        _audioData = new MemoryStream();
-        IsRecording = true;
-
-        string deviceArg = (source == "Default" || source == "System Default") ? "" : $"-d {source}";
-
-        _recordingProcess = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "parec",
-                Arguments = $"{deviceArg} --rate={sampleRate} --channels=1 --format=s16le --raw",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            }
-        };
-
-        _recordingProcess.Start();
-
-        Task.Run(async () =>
-        {
-            try
-            {
-                var buffer = new byte[4096];
-                while (IsRecording && _recordingProcess != null && !_recordingProcess.HasExited)
-                {
-                    int read = await _recordingProcess.StandardOutput.BaseStream.ReadAsync(buffer, 0, buffer.Length);
-                    if (read > 0)
-                    {
-                        var chunk = new byte[read];
-                        Array.Copy(buffer, chunk, read);
-                        
-                        // Fire event for real-time streaming
-                        DataAvailable?.Invoke(chunk);
-
-                        lock (_audioData!)
-                        {
-                            _audioData.Write(buffer, 0, read);
-                        }
-                    }
-                    else if (read == 0) break;
-                }
-            }
-            catch { }
-        });
-    }
-
-    public byte[] StopRecording()
-    {
-        if (!IsRecording) return Array.Empty<byte>();
-        IsRecording = false;
-        
         try
         {
-            if (_recordingProcess != null && !_recordingProcess.HasExited)
+            _audioData = new MemoryStream();
+            
+            int deviceIndex = -1; // Default
+            if (source != "Default" && int.TryParse(source, out var idx))
             {
-                _recordingProcess.Kill();
+                deviceIndex = idx;
             }
-        }
-        catch { }
 
-        _recordingProcess?.Dispose();
-        _recordingProcess = null;
+            if (!Bass.RecordInit(deviceIndex))
+            {
+                var error = Bass.LastError;
+                if (error != Errors.Already)
+                {
+                    Console.WriteLine($"BASS RecordInit Error: {error}");
+                    return;
+                }
+            }
+
+            _recordProcedure = new RecordProcedure(MyRecordingProcedure);
+            _recordHandle = Bass.RecordStart(sampleRate, 1, BassFlags.Default, _recordProcedure);
+
+            if (_recordHandle == 0)
+            {
+                Console.WriteLine($"BASS RecordStart Error: {Bass.LastError}");
+                return;
+            }
+
+            IsRecording = true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Capture Start Error: {ex.Message}");
+            IsRecording = false;
+        }
+    }
+
+    private bool MyRecordingProcedure(int handle, IntPtr buffer, int length, IntPtr user)
+    {
+        if (length > 0 && _audioData != null)
+        {
+            var data = new byte[length];
+            Marshal.Copy(buffer, data, 0, length);
+            
+            lock (_audioData)
+            {
+                _audioData.Write(data, 0, length);
+            }
+
+            DataAvailable?.Invoke(data);
+        }
+        return true;
+    }
+
+    public async Task<byte[]> StopRecordingAsync()
+    {
+        if (!IsRecording) return Array.Empty<byte>();
+        
+        IsRecording = false;
+        Bass.ChannelStop(_recordHandle);
+        _recordHandle = 0;
 
         if (_audioData == null) return Array.Empty<byte>();
 
@@ -139,5 +113,11 @@ public class AudioCaptureService
             _audioData = null;
             return data;
         }
+    }
+
+    public void Dispose()
+    {
+        if (IsRecording) _ = StopRecordingAsync();
+        Bass.RecordFree();
     }
 }

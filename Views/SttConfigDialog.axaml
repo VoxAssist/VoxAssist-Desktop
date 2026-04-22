@@ -14,8 +14,7 @@
             <TextBlock Text="Grok Provider:"/>
             <Grid ColumnDefinitions="*,Auto,Auto">
                 <ComboBox ItemsSource="{Binding #Root.MainVm.AiProviders}" 
-                          SelectedValue="{Binding GrokProvider}" 
-                          SelectedValueBinding="{Binding Name}"
+                          SelectedItem="{Binding #Root.MainVm.SelectedGrokProvider}"
                           HorizontalAlignment="Stretch">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
@@ -26,6 +25,18 @@
                 <Button Grid.Column="1" Content="Edit" Click="EditProviderClick" Margin="5,0,0,0" ToolTip.Tip="Edit Selected Provider"/>
                 <Button Grid.Column="2" Content="+" Click="AddProviderClick" Margin="5,0,0,0" ToolTip.Tip="Add New Provider"/>
             </Grid>
+
+            <TextBlock Text="Language Formatting:"/>
+            <ComboBox ItemsSource="{Binding #Root.MainVm.GrokLanguages}" 
+                      SelectedValue="{Binding #Root.MainVm.GrokLanguage}"
+                      SelectedValueBinding="{Binding Value}"
+                      HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Key}"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
             
             <TextBlock Text="Audio Compression:"/>
             <ComboBox ItemsSource="{Binding CompressionTypes}" SelectedItem="{Binding SelectedCompression}" HorizontalAlignment="Stretch">
@@ -40,11 +51,11 @@
         <!-- VoxAssist Server Configuration -->
         <StackPanel IsVisible="{Binding EditingVoxStt}" Spacing="10">
             <TextBlock Text="Server Host URL:"/>
-            <TextBox Text="{Binding VoxAssistHostUrl}" Watermark="http://localhost:5000"/>
+            <TextBox Text="{Binding VoxAssistHostUrl}" PlaceholderText="http://localhost:5000"/>
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0" Spacing="10">
-            <Button Content="Cancel" Click="CancelClick" Width="100" HorizontalContentAlignment="Center"/>
+            <Button Content="Cancel" Click="CancelClick" Width="100" HorizontalContentAlignment="Center" HotKey="Escape"/>
             <Button Content="Save" Background="#33AA33" Click="SaveClick" Width="100" HorizontalContentAlignment="Center"/>
         </StackPanel>
     </StackPanel>

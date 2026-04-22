@@ -17,7 +17,7 @@
         <TextBox Text="{Binding ApiKey}" PasswordChar="*"/>
 
         <UniformGrid Columns="2" Margin="0,20,0,0">
-            <Button Content="Cancel" Click="CancelClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,10,0"/>
+            <Button Content="Cancel" Click="CancelClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,10,0" HotKey="Escape"/>
             <Button Content="Save" Background="#33AA33" Click="SaveClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
         </UniformGrid>
     </StackPanel>

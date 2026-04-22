@@ -56,8 +56,8 @@ public class HotkeyService : IDisposable
             }
         }
         
-        CheckHotKey();
         _pressedKeys.Remove(e.Data.KeyCode);
+        CheckHotKey();
     }
 
     private void CheckHotKey()

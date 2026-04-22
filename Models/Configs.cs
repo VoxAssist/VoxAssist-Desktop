@@ -39,5 +39,6 @@ public class UserConfig
     public bool IsCcw { get; set; }
     public bool IsGrokStt { get; set; } = true;
     public string GrokProvider { get; set; } = "";
+    public string GrokLanguage { get; set; } = "en";
     public string VoxAssistHostUrl { get; set; } = "";
 }

@@ -12,6 +12,7 @@ using System.Net.Http;
 using System.Net;
 using System.IO;
 using System.Reflection;
+using System.Threading;
 using VoxAssist.Desktop.Views;
 using Avalonia.Controls;
 using Avalonia;
@@ -144,8 +145,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             if (_isAecEnabled == value) return;
             this.RaiseAndSetIfChanged(ref _isAecEnabled, value);
             if (!_isInitialized) return;
-            if (value) _aec.EnableAecAsync();
-            else _aec.DisableAecAsync();
+            if (value) _ = _aec.EnableAecAsync();
+            else _ = _aec.DisableAecAsync();
         }
     }
 
@@ -220,14 +221,15 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     public LlmViewModel? SelectedLlm 
     { 
         get => _selectedLlm; 
-        set 
+        set => this.RaiseAndSetIfChanged(ref _selectedLlm, value);
+    }
+
+    public async Task EditSelectedLlm()
+    {
+        if (SelectedLlm != null && !string.IsNullOrEmpty(SelectedLlm.Model) && SelectedLlm.Model != "Default" && SelectedLlm.Model != "None")
         {
-            if (value == null) return;
-            var llm = value;
-            _selectedLlm = null;
-            this.RaisePropertyChanged(nameof(SelectedLlm));
-            if (!string.IsNullOrEmpty(llm.Model) && llm.Model != "Default" && llm.Model != "None") EditLlm(llm);
-        } 
+            await EditLlm(SelectedLlm);
+        }
     }
 
     public HotkeyService HotkeyService => _hotkey;
@@ -237,7 +239,41 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     public string LedPattern { get => _ledPattern; set { this.RaiseAndSetIfChanged(ref _ledPattern, value); if (_isInitialized) UpdateLedMode(); } }
 
     private string _grokProvider = "xAI";
-    public string GrokProvider { get => _grokProvider; set => this.RaiseAndSetIfChanged(ref _grokProvider, value); }
+    public string GrokProvider 
+    { 
+        get => _grokProvider; 
+        set 
+        {
+            this.RaiseAndSetIfChanged(ref _grokProvider, value);
+            this.RaisePropertyChanged(nameof(SelectedGrokProvider));
+        }
+    }
+
+    public AiProviderViewModel? SelectedGrokProvider
+    {
+        get => AiProviders.FirstOrDefault(p => p.Name == GrokProvider);
+        set
+        {
+            if (value != null)
+            {
+                GrokProvider = value.Name;
+            }
+        }
+    }
+
+    public ObservableCollection<KeyValuePair<string, string>> GrokLanguages { get; } = new()
+    {
+        new("Arabic", "ar"), new("Czech", "cs"), new("Danish", "da"), new("Dutch", "nl"),
+        new("English", "en"), new("Filipino", "fil"), new("French", "fr"), new("German", "de"),
+        new("Hindi", "hi"), new("Indonesian", "id"), new("Italian", "it"), new("Japanese", "ja"),
+        new("Korean", "ko"), new("Macedonian", "mk"), new("Malay", "ms"), new("Persian", "fa"),
+        new("Polish", "pl"), new("Portuguese", "pt"), new("Romanian", "ro"), new("Russian", "ru"),
+        new("Spanish", "es"), new("Swedish", "sv"), new("Thai", "th"), new("Turkish", "tr"),
+        new("Vietnamese", "vi")
+    };
+
+    private string _grokLanguage = "en";
+    public string GrokLanguage { get => _grokLanguage; set => this.RaiseAndSetIfChanged(ref _grokLanguage, value); }
 
     private string _voxAssistHostUrl = "";
     public string VoxAssistHostUrl { get => _voxAssistHostUrl; set => this.RaiseAndSetIfChanged(ref _voxAssistHostUrl, value); }
@@ -259,6 +295,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private bool _editingVoxStt;
     public bool EditingVoxStt { get => _editingVoxStt; set => this.RaiseAndSetIfChanged(ref _editingVoxStt, value); }
 
+    private readonly GrokService _grok;
+    private int _lastActionId = -1;
+
     public MainWindowViewModel()
     {
         _audioCapture = new AudioCaptureService();
@@ -267,12 +306,16 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         _respeaker = new RespeakerService();
         _aec = new AecService();
         _sound = new SoundService();
+        _grok = new GrokService();
 
         _hotkey.HotKeyPressedDynamic += OnHotKeyPressed;
         _hotkey.HotKeyReleasedDynamic += OnHotKeyReleased;
         _hotkey.Start();
 
-        _audioCapture.DataAvailable += async (data) => { /* Process locally */ };
+        _audioCapture.DataAvailable += (data) => 
+        { 
+            _pcmChannel?.Writer.TryWrite(data);
+        };
 
         SyncHardware();
         LoadMics();
@@ -367,10 +410,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 var config = System.Text.Json.JsonSerializer.Deserialize<UserConfig>(json);
                 if (config != null)
                 {
-                    _isCcw = config.IsCcw;
-                    _isGrokStt = config.IsGrokStt;
-                    _grokProvider = config.GrokProvider;
-                    _voxAssistHostUrl = config.VoxAssistHostUrl;
+                    IsCcw = config.IsCcw;
+                    IsGrokStt = config.IsGrokStt;
+                    GrokProvider = string.IsNullOrEmpty(config.GrokProvider) ? "xAI" : config.GrokProvider;
+                    GrokLanguage = string.IsNullOrEmpty(config.GrokLanguage) ? "en" : config.GrokLanguage;
+                    VoxAssistHostUrl = config.VoxAssistHostUrl;
                 }
             }
         }
@@ -398,7 +442,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         
         UpdateLlmSelector();
         UpdateHotkeyService();
-        Conversation.Insert(0, "System: Standalone mode initialized.");
+        Conversation.Add("System: Ready");
     }
 
     private void UpdateLlmSelector()
@@ -446,54 +490,178 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         this.RaisePropertyChanged(nameof(IsAecEnabled));
         _isInitialized = true;
     }
+private int _preBufferMs = 700;
 
-    private void OnHotKeyPressed(int actionId) 
-    { 
-        if (actionId < 0 || actionId >= Actions.Count) return;
-        var action = Actions[actionId];
+public int PreBufferMs { get => _preBufferMs; set => this.RaiseAndSetIfChanged(ref _preBufferMs, value); }
 
-        if (action.AiModel == "None")
+private CancellationTokenSource? _captureCts;
+private System.Threading.Channels.Channel<byte[]>? _pcmChannel;
+
+private async void OnHotKeyPressed(int actionId) 
+{ 
+    if (actionId < 0 || actionId >= Actions.Count) return;
+    var action = Actions[actionId];
+    _lastActionId = actionId;
+
+    _captureCts?.Cancel();
+    _captureCts = new CancellationTokenSource();
+    var token = _captureCts.Token;
+
+    // Play chirp synchronously in a task to not block UI, but ensure it's heard before we start
+    await Task.Run(() => _sound.PlayChirp(sync: true));
+
+    // Additional stabilization delay
+    await Task.Delay(50);
+
+    Status = $"Action: {action.Name} (Buffering...)";
+    MicStatus = "Listening...";
+
+    _pcmChannel = System.Threading.Channels.Channel.CreateUnbounded<byte[]>();
+    _audioCapture.StartRecording(SelectedMic?.Name ?? "Default");
+
+    // Start pre-buffer wait
+    _ = Task.Run(async () =>
+    {
+        try
         {
-             // Start Recording directly, no AI check
-            Status = $"Action: {action.Name}";
-            MicStatus = "Listening...";
-            _respeaker.SetLedMode(3); 
-            _audioCapture.StartRecording(SelectedMic?.Name ?? "Default");
+            await Task.Delay(PreBufferMs, token);
+            // If we reach here, we've exceeded pre-buffer without release
+            await StartGrokStreaming(action, token);
+        }
+        catch (OperationCanceledException) { /* Handled in Released */ }
+        catch (Exception ex)
+        {
+            Dispatcher.UIThread.Post(() => Conversation.Add($"Error: {ex.Message}"));
+        }
+    });
+}
+
+private async void OnHotKeyReleased(int actionId) 
+{ 
+    if (!_audioCapture.IsRecording) return;
+
+    var isShortPress = _captureCts != null && !_captureCts.IsCancellationRequested && Status.Contains("Buffering");
+
+    if (isShortPress)
+    {
+        _captureCts?.Cancel();
+        _audioCapture.StopRecordingAsync().Wait(); // Discard
+        _sound.PlayError();
+        Status = "Cancelled (Too short)";
+        MicStatus = "Ready";
+        await Task.Delay(1000);
+        Status = "Ready";
+        return;
+    }
+
+    // Wait a bit to catch the end of speech due to system/buffering latency
+    await Task.Delay(500);
+
+    var audio = await _audioCapture.StopRecordingAsync();
+    _pcmChannel?.Writer.TryComplete();
+
+    _sound.PlayDoubleChirp();
+
+    MicStatus = "Finalizing...";
+    // The processing logic is now partially handled by the streaming task
+}
+
+private async Task StartGrokStreaming(ActionViewModel action, CancellationToken token)
+{
+    Status = $"Action: {action.Name} (Streaming...)";
+
+    try
+    {
+        var provider = AiProviders.FirstOrDefault(p => p.Name == GrokProvider);
+        if (provider == null || string.IsNullOrEmpty(provider.ApiKey))
+        {
+            _sound.PlayError();
+            Dispatcher.UIThread.Post(() => Conversation.Add("Error: Grok Provider not configured."));
             return;
         }
 
-        var model = Llms.FirstOrDefault(l => l.Model == action.AiModel);
+        // This will block until the request is finished and text is returned
+        var text = await _grok.StreamSpeechToTextAsync(_pcmChannel!.Reader, provider.ApiKey, GrokLanguage, SelectedCompression, token);
+
+        if (string.IsNullOrEmpty(text) || text.StartsWith("Error"))
+        {
+            _sound.PlayError();
+            Dispatcher.UIThread.Post(() => Conversation.Add($"STT Error: {text}"));
+        }
+        else
+        {
+            Dispatcher.UIThread.Post(() => Conversation.Add($"You: {text}"));
+            await ProcessActionResponse(text, action);
+        }
+    }
+    catch (Exception ex)
+    {
+        if (!token.IsCancellationRequested)
+        {
+            _sound.PlayError();
+            Dispatcher.UIThread.Post(() => Conversation.Add($"Streaming Error: {ex.Message}"));
+        }
+    }
+    finally
+    {
+        Dispatcher.UIThread.Post(() => 
+        {
+            MicStatus = "Ready";
+            Status = "Ready";
+        });
+    }
+}
+
+private async Task ProcessActionResponse(string text, ActionViewModel action)
+{
+    // 2. Action / LLM
+    if (action.AiModel != "None" && !string.IsNullOrEmpty(action.AiModel))
+    {
+        var modelName = action.AiModel == "Default" ? Llms.FirstOrDefault(l => l.IsDefault)?.Model : action.AiModel;
+        var model = Llms.FirstOrDefault(l => l.Model == modelName);
         if (model == null) model = Llms.FirstOrDefault(l => l.IsDefault);
 
-        if (model == null)
+        if (model != null)
         {
-            Dispatcher.UIThread.Post(() => Conversation.Insert(0, $"Error: No AI Model configured for '{action.Name}' and no Default model found."));
-            return;
+            var llmProvider = AiProviders.FirstOrDefault(p => p.Name == model.ProviderName);
+            if (llmProvider != null && !string.IsNullOrEmpty(llmProvider.ApiKey))
+            {
+                var result = await _grok.ProcessActionAsync(text, action.Prompt, llmProvider.ApiKey, llmProvider.HostUrl, model.Model);
+                if (result != null)
+                {
+                    if (!string.IsNullOrEmpty(result.Markdown))
+                    {
+                        Dispatcher.UIThread.Post(() => Conversation.Add($"AI: {result.Markdown}"));
+                    }
+                    if (!string.IsNullOrEmpty(result.Keyboard))
+                    {
+                        await _keyboard.TypeTextAsync(result.Keyboard);
+                    }
+                }
+                else
+                {
+                    _sound.PlayError();
+                    Dispatcher.UIThread.Post(() => Conversation.Add("Error: LLM returned no result or invalid JSON."));
+                }
+            }
+            else
+            {
+                _sound.PlayError();
+                Dispatcher.UIThread.Post(() => Conversation.Add("Error: LLM Provider not configured."));
+            }
         }
-
-        var provider = AiProviders.FirstOrDefault(p => p.Name == model.ProviderName);
-        if (provider == null || string.IsNullOrEmpty(provider.HostUrl) || string.IsNullOrEmpty(provider.ApiKey))
+        else
         {
-            Dispatcher.UIThread.Post(() => Conversation.Insert(0, $"Error: Provider '{model.ProviderName}' for model '{model.Model}' is missing Host URL or API Key."));
-            return;
+            _sound.PlayError();
+            Dispatcher.UIThread.Post(() => Conversation.Add("Error: No LLM Model found."));
         }
-
-        Status = $"Action: {action.Name}";
-        MicStatus = "Listening...";
-        _respeaker.SetLedMode(3); 
-        _audioCapture.StartRecording(SelectedMic?.Name ?? "Default");
     }
-
-    private void OnHotKeyReleased(int actionId) 
-    { 
-        if (!_audioCapture.IsRecording) return;
-        var audio = _audioCapture.StopRecording();
-        
-        MicStatus = "Processing...";
-        _respeaker.SetLedMode(5); 
-        Status = "Ready";
+    else
+    {
+        // Just type the text if no LLM is configured
+        await _keyboard.TypeTextAsync(text);
     }
-
+}
     public async Task SetActionHotkey()
     {
         if (SelectedAction == null) return;
@@ -561,6 +729,12 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
     public async Task EditGrokStt()
     {
+        // Backup settings
+        var oldIsGrok = IsGrokStt;
+        var oldProvider = GrokProvider;
+        var oldLang = GrokLanguage;
+        var oldComp = SelectedCompression;
+
         EditingGrokStt = true;
         EditingVoxStt = false;
         var dialog = new SttConfigDialog(this);
@@ -568,13 +742,28 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         var mainWindow = GetMainWindow();
         if (mainWindow != null) 
         {
-            await dialog.ShowDialog<bool>(mainWindow);
-            SaveLocalData();
+            var result = await dialog.ShowDialog<bool>(mainWindow);
+            if (result)
+            {
+                SaveLocalData();
+            }
+            else
+            {
+                // Restore settings
+                IsGrokStt = oldIsGrok;
+                GrokProvider = oldProvider;
+                GrokLanguage = oldLang;
+                SelectedCompression = oldComp;
+            }
         }
     }
 
     public async Task EditVoxStt()
     {
+        // Backup settings
+        var oldIsGrok = IsGrokStt;
+        var oldUrl = VoxAssistHostUrl;
+
         EditingGrokStt = false;
         EditingVoxStt = true;
         var dialog = new SttConfigDialog(this);
@@ -582,8 +771,17 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         var mainWindow = GetMainWindow();
         if (mainWindow != null) 
         {
-            await dialog.ShowDialog<bool>(mainWindow);
-            SaveLocalData();
+            var result = await dialog.ShowDialog<bool>(mainWindow);
+            if (result)
+            {
+                SaveLocalData();
+            }
+            else
+            {
+                // Restore settings
+                IsGrokStt = oldIsGrok;
+                VoxAssistHostUrl = oldUrl;
+            }
         }
     }
 
@@ -637,7 +835,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             var settingsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings");
             if (!Directory.Exists(settingsDir)) Directory.CreateDirectory(settingsDir);
 
-            var config = new UserConfig { IsCcw = IsCcw, IsGrokStt = IsGrokStt, GrokProvider = GrokProvider, VoxAssistHostUrl = VoxAssistHostUrl };
+            var config = new UserConfig { IsCcw = IsCcw, IsGrokStt = IsGrokStt, GrokProvider = GrokProvider, GrokLanguage = GrokLanguage, VoxAssistHostUrl = VoxAssistHostUrl };
             var json = System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(settingsDir, "settings.json"), json);
 

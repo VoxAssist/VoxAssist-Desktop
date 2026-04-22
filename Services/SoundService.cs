@@ -33,8 +33,8 @@ public class SoundService : IDisposable
     {
         try
         {
-            _chirpSample = CreateSineSample(1200, 0.03f, 44100); // 30ms Pip at 1200Hz
-            _errorSample = CreateSineSample(400, 0.2f, 44100);
+            _chirpSample = CreateSineSample(1200, 0.01f, 44100); // 30ms Pip at 1200Hz
+            _errorSample = CreateSineSample(400, 0.1f, 44100);
         }
         catch (Exception ex)
         {
@@ -109,7 +109,7 @@ public class SoundService : IDisposable
         if (sync)
         {
             PlayChirp(true);
-            Thread.Sleep(150);
+            Thread.Sleep(50);
             PlayChirp(true);
         }
         else
@@ -117,7 +117,7 @@ public class SoundService : IDisposable
             Task.Run(async () =>
             {
                 PlayChirp(true);
-                await Task.Delay(150);
+                await Task.Delay(50);
                 PlayChirp(true);
             });
         }

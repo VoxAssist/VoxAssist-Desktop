@@ -19,8 +19,11 @@ namespace VoxAssist.Desktop.Services;
 
 public class GrokResponse
 {
-    public string Keyboard { get; set; } = "";
-    public string Markdown { get; set; } = "";
+    public string? Keyboard { get; set; }
+    public string? Markdown { get; set; }
+    public string? Error { get; set; }
+    public string? LlmRequest { get; set; }
+    public string? FullResponse { get; set; }
 }
 
 public class GrokService
@@ -255,38 +258,97 @@ public class GrokService
         writer.Write(rawDataLength);
     }
 
-    public async Task<GrokResponse?> ProcessActionAsync(string text, string prompt, string apiKey, string baseUrl, string model)
+    public async Task<GrokResponse?> ProcessActionAsync(List<ChatMessage> messages, string apiKey, string baseUrl, string model)
     {
+        string requestJson = "";
         try
         {
+            // Resilience: Fix URL if it includes /stt suffix (common config error)
+            var sanitizedBaseUrl = baseUrl.TrimEnd('/');
+            if (sanitizedBaseUrl.EndsWith("/stt"))
+            {
+                sanitizedBaseUrl = sanitizedBaseUrl.Substring(0, sanitizedBaseUrl.Length - 4);
+            }
+
             var requestBody = new
             {
                 model = model,
-                messages = new[]
-                {
-                    new { role = "system", content = prompt },
-                    new { role = "user", content = text }
-                },
+                messages = messages,
                 response_format = new { type = "json_object" }
             };
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl.TrimEnd('/')}/chat/completions");
+            requestJson = JsonSerializer.Serialize(requestBody, new JsonSerializerOptions { WriteIndented = true });
+            var fullUrl = $"{sanitizedBaseUrl.TrimEnd('/')}/chat/completions";
+            
+            using var request = new HttpRequestMessage(HttpMethod.Post, fullUrl);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-            request.Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+            request.Content = new StringContent(requestJson, Encoding.UTF8, "application/json");
 
             var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                return new GrokResponse { Error = $"LLM API Error (at {fullUrl}): {response.StatusCode} - {error}\nRequest Body: {requestJson}" };
+            }
 
             var resultJson = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(resultJson);
             var content = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
             
-            if (string.IsNullOrEmpty(content)) return null;
+            if (string.IsNullOrEmpty(content)) return new GrokResponse { Error = "LLM returned empty content.", FullResponse = resultJson };
 
-            return JsonSerializer.Deserialize<GrokResponse>(content, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            // Clean markdown if LLM wrapped JSON in ```json ... ```
+            var cleanedContent = content.Trim();
+            if (cleanedContent.StartsWith("```"))
+            {
+                int firstNewline = cleanedContent.IndexOf('\n');
+                int lastBacktick = cleanedContent.LastIndexOf("```");
+                if (firstNewline != -1 && lastBacktick > firstNewline)
+                {
+                    cleanedContent = cleanedContent.Substring(firstNewline, lastBacktick - firstNewline).Trim();
+                }
+            }
+
+            try 
+            {
+                var grokResult = JsonSerializer.Deserialize<GrokResponse>(cleanedContent, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (grokResult != null) 
+                {
+                    grokResult.LlmRequest = requestJson;
+                    
+                    // Beautify the raw API response for debugging
+                    try
+                    {
+                        using var jsonDoc = JsonDocument.Parse(resultJson);
+                        grokResult.FullResponse = JsonSerializer.Serialize(jsonDoc, new JsonSerializerOptions { WriteIndented = true });
+                    }
+                    catch { grokResult.FullResponse = resultJson; }
+                }
+                return grokResult;
+            }
+            catch (Exception ex)
+            {
+                var fallbackResponse = resultJson;
+                try
+                {
+                    using var jsonDoc = JsonDocument.Parse(resultJson);
+                    fallbackResponse = JsonSerializer.Serialize(jsonDoc, new JsonSerializerOptions { WriteIndented = true });
+                }
+                catch { }
+                return new GrokResponse { Error = $"JSON Parse Error: {ex.Message}. Raw content: {content}", LlmRequest = requestJson, FullResponse = fallbackResponse };
+            }
         }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            return new GrokResponse { Error = $"ProcessActionAsync Exception: {ex.Message}" };
+        }
     }
+}
+
+public class ChatMessage
+{
+    public string role { get; set; } = "";
+    public string content { get; set; } = "";
 }
 
 public class PushStreamContent : HttpContent

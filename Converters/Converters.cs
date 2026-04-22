@@ -68,7 +68,11 @@ public class PrefixConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        if (value is string text && text.Contains(": "))
+        string? text = null;
+        if (value is VoxAssist.Desktop.ViewModels.ConversationEntry entry) text = entry.Message;
+        else if (value is string s) text = s;
+
+        if (text != null && text.Contains(": "))
         {
             return text.Substring(0, text.IndexOf(": ") + 1);
         }
@@ -81,7 +85,11 @@ public class MessageConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        if (value is string text)
+        string? text = null;
+        if (value is VoxAssist.Desktop.ViewModels.ConversationEntry entry) text = entry.Message;
+        else if (value is string s) text = s;
+
+        if (text != null)
         {
             if (text.Contains(": "))
             {

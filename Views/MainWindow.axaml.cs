@@ -46,6 +46,14 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ConversationItem_Tapped(object? sender, Avalonia.Input.TappedEventArgs e)
+    {
+        if (sender is Control control)
+        {
+            Avalonia.Controls.Primitives.FlyoutBase.ShowAttachedFlyout(control);
+        }
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         base.OnClosed(e);

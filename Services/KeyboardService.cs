@@ -9,6 +9,12 @@ public class KeyboardService
 {
     private readonly EventSimulator _simulator = new();
 
+    public KeyboardService()
+    {
+        // Set X11 text simulation delay to 1ms
+        _simulator.TextSimulationDelayOnX11 = System.TimeSpan.FromMilliseconds(10);
+    }
+
     public async Task TypeTextAsync(string text)
     {
         if (string.IsNullOrEmpty(text)) return;

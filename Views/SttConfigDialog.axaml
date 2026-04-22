@@ -51,7 +51,7 @@
         <!-- VoxAssist Server Configuration -->
         <StackPanel IsVisible="{Binding EditingVoxStt}" Spacing="10">
             <TextBlock Text="Server Host URL:"/>
-            <TextBox Text="{Binding VoxAssistHostUrl}" PlaceholderText="http://localhost:5000"/>
+            <TextBox Text="{Binding VoxAssistHostUrl}" Watermark="http://localhost:5000"/>
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0" Spacing="10">

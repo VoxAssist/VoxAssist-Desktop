@@ -6,7 +6,7 @@
         CanResize="False"
         Topmost="True"
         ShowInTaskbar="False"
-        WindowDecorations="BorderOnly"
+        SystemDecorations="BorderOnly"
         Background="#1e1e1e"
         Focusable="True">
     <Border BorderBrush="#00FF00" BorderThickness="1" CornerRadius="8" Padding="20">

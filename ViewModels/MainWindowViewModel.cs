@@ -83,27 +83,49 @@ public class InteractionRecord : ViewModelBase
 public class ActionViewModel : ViewModelBase
 {
     private string _name = "";
-    public string Name { get => _name; set { this.RaiseAndSetIfChanged(ref _name, value); IsDirty = true; } }
+    public string Name { get => _name; set { this.RaiseAndSetIfChanged(ref _name, value); } }
 
     private string _prompt = "";
-    public string Prompt { get => _prompt; set { this.RaiseAndSetIfChanged(ref _prompt, value); IsDirty = true; } }
+    public string Prompt { get => _prompt; set { this.RaiseAndSetIfChanged(ref _prompt, value); } }
 
     private string _hotkeyDisplay = "None";
     public string HotkeyDisplay { get => _hotkeyDisplay; set => this.RaiseAndSetIfChanged(ref _hotkeyDisplay, value); }
 
     private string _aiModel = "";
-    public string AiModel { get => _aiModel; set { this.RaiseAndSetIfChanged(ref _aiModel, value); IsDirty = true; } }
+    public string AiModel { get => _aiModel; set { this.RaiseAndSetIfChanged(ref _aiModel, value); } }
 
     private bool _showPopup;
-    public bool ShowPopup { get => _showPopup; set { this.RaiseAndSetIfChanged(ref _showPopup, value); IsDirty = true; } }
+    public bool ShowPopup { get => _showPopup; set { this.RaiseAndSetIfChanged(ref _showPopup, value); } }
 
     private bool _useTts;
-    public bool UseTts { get => _useTts; set { this.RaiseAndSetIfChanged(ref _useTts, value); IsDirty = true; } }
-
-    private bool _isDirty;
-    public bool IsDirty { get => _isDirty; set => this.RaiseAndSetIfChanged(ref _isDirty, value); }
+    public bool UseTts { get => _useTts; set { this.RaiseAndSetIfChanged(ref _useTts, value); } }
 
     public List<KeyCode> Hotkey { get; set; } = new();
+
+    public ActionViewModel Clone()
+    {
+        return new ActionViewModel
+        {
+            Name = this.Name,
+            Prompt = this.Prompt,
+            HotkeyDisplay = this.HotkeyDisplay,
+            AiModel = this.AiModel,
+            ShowPopup = this.ShowPopup,
+            UseTts = this.UseTts,
+            Hotkey = new List<KeyCode>(this.Hotkey)
+        };
+    }
+
+    public bool IsEqualTo(ActionViewModel other)
+    {
+        if (other == null) return false;
+        return Name == other.Name &&
+               Prompt == other.Prompt &&
+               AiModel == other.AiModel &&
+               ShowPopup == other.ShowPopup &&
+               UseTts == other.UseTts &&
+               Hotkey.SequenceEqual(other.Hotkey);
+    }
 }
 
 public class AiProviderViewModel : ViewModelBase
@@ -285,20 +307,42 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     public ObservableCollection<ActionViewModel> Actions { get; } = new();
     
     private ActionViewModel? _selectedAction;
+    private ActionViewModel? _originalAction;
+    private IDisposable? _selectedActionSubscription;
+
     public ActionViewModel? SelectedAction 
     { 
         get => _selectedAction; 
         set 
         { 
+            _selectedActionSubscription?.Dispose();
             this.RaiseAndSetIfChanged(ref _selectedAction, value); 
-            if (_selectedAction != null) _selectedAction.IsDirty = false;
+            _originalAction = value?.Clone();
+            
+            if (_selectedAction != null)
+            {
+                _selectedActionSubscription = _selectedAction.Changed.Subscribe(_ => 
+                {
+                    this.RaisePropertyChanged(nameof(CanSaveSelectedAction));
+                    this.RaisePropertyChanged(nameof(SelectedActionLlm));
+                    this.RaisePropertyChanged(nameof(IsPromptEnabled));
+                });
+            }
+
             this.RaisePropertyChanged(nameof(SelectedActionLlm));
             this.RaisePropertyChanged(nameof(IsPromptEnabled));
             this.RaisePropertyChanged(nameof(CanSaveSelectedAction));
         } 
     }
 
-    public bool CanSaveSelectedAction => SelectedAction?.IsDirty ?? false;
+    public bool CanSaveSelectedAction
+    {
+        get
+        {
+            if (SelectedAction == null || _originalAction == null) return false;
+            return !SelectedAction.IsEqualTo(_originalAction);
+        }
+    }
 
     public LlmViewModel? SelectedActionLlm
     {
@@ -317,7 +361,6 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 
                 this.RaisePropertyChanged(nameof(SelectedActionLlm));
                 this.RaisePropertyChanged(nameof(IsPromptEnabled));
-                SaveLocalData();
             }
         }
     }
@@ -414,6 +457,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     public bool EditingVoxStt { get => _editingVoxStt; set => this.RaiseAndSetIfChanged(ref _editingVoxStt, value); }
 
     private readonly GrokService _grok;
+    private readonly GrokTtsService _grokTts;
     private int _lastActionId = -1;
 
     // Tracking for 'Append To Last Reply'
@@ -430,6 +474,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         _aec = new AecService();
         _sound = new SoundService();
         _grok = new GrokService();
+        _grokTts = new GrokTtsService();
 
         _hotkey.HotKeyPressedDynamic += OnHotKeyPressed;
         _hotkey.HotKeyReleasedDynamic += OnHotKeyReleased;
@@ -870,10 +915,27 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         SaveLocalData();
     }
     
+    public void CancelSelectedAction()
+    {
+        if (SelectedAction == null || _originalAction == null) return;
+        
+        SelectedAction.Name = _originalAction.Name;
+        SelectedAction.Prompt = _originalAction.Prompt;
+        SelectedAction.AiModel = _originalAction.AiModel;
+        SelectedAction.ShowPopup = _originalAction.ShowPopup;
+        SelectedAction.UseTts = _originalAction.UseTts;
+        SelectedAction.Hotkey = new List<KeyCode>(_originalAction.Hotkey);
+        SelectedAction.HotkeyDisplay = _originalAction.HotkeyDisplay;
+        
+        this.RaisePropertyChanged(nameof(SelectedActionLlm));
+        this.RaisePropertyChanged(nameof(IsPromptEnabled));
+        this.RaisePropertyChanged(nameof(CanSaveSelectedAction));
+    }
+
     public void SaveSelectedAction() 
     { 
         SaveLocalData(); 
-        if (SelectedAction != null) SelectedAction.IsDirty = false;
+        _originalAction = SelectedAction?.Clone();
         this.RaisePropertyChanged(nameof(CanSaveSelectedAction));
     }
 

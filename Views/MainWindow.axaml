@@ -139,12 +139,14 @@
 
                             <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" Margin="0,5,0,0">
                                 <Button Content="Delete" Background="#AA3333" Command="{Binding DeleteSelectedAction}"/>
-                                <Button Content="Save" 
-                                        Background="{Binding CanSaveSelectedAction, Converter={StaticResource SaveButtonColorConverter}}" 
-                                        Command="{Binding SaveSelectedAction}" 
+                                <Button Content="Cancel"
+                                        Command="{Binding CancelSelectedAction}"
+                                        IsEnabled="{Binding CanSaveSelectedAction}"/>
+                                <Button Content="Save"
+                                        Background="{Binding CanSaveSelectedAction, Converter={StaticResource SaveButtonColorConverter}}"
+                                        Command="{Binding SaveSelectedAction}"
                                         IsEnabled="{Binding CanSaveSelectedAction}"/>
                             </StackPanel>
-
                             <StackPanel Spacing="5">
                                 <TextBlock Text="Keyboard Hotkey:"/>
                                 <Grid ColumnDefinitions="*,Auto">

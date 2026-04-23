@@ -46,11 +46,22 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ConversationItem_Tapped(object? sender, Avalonia.Input.TappedEventArgs e)
+    private void ConversationItem_PointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e)
     {
-        if (sender is Control control)
+        if (sender is Control control && control.DataContext is InteractionRecord record && DataContext is MainWindowViewModel vm)
         {
-            Avalonia.Controls.Primitives.FlyoutBase.ShowAttachedFlyout(control);
+            var props = e.GetCurrentPoint(control).Properties;
+            
+            if (e.ClickCount == 2 && props.IsLeftButtonPressed)
+            {
+                _ = vm.ShowDebug(record);
+                e.Handled = true;
+            }
+            else if (props.IsLeftButtonPressed || props.IsRightButtonPressed)
+            {
+                // Single left or any right click opens menu
+                control.ContextMenu?.Open(control);
+            }
         }
     }
 

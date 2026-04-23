@@ -15,6 +15,7 @@
         <conv:MicStatusColorConverter x:Key="MicStatusColorConverter"/>
         <conv:PrefixConverter x:Key="PrefixConverter"/>
         <conv:MessageConverter x:Key="MessageConverter"/>
+        <conv:SaveButtonColorConverter x:Key="SaveButtonColorConverter"/>
     </Application.Resources>
 
     <Application.DataTemplates>

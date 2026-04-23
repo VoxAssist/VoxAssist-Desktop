@@ -44,7 +44,6 @@
             <TabItem Header="Conversation">
                 <ListBox x:Name="ConversationListBox" 
                          ItemsSource="{Binding Conversation}" 
-                         SelectedItem="{Binding SelectedConversationEntry}"
                          Background="White" 
                          BorderThickness="0"
                          Padding="0"
@@ -54,21 +53,29 @@
                             <Setter Property="Padding" Value="5,1"/>
                             <Setter Property="Margin" Value="0"/>
                             <Setter Property="MinHeight" Value="0"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                        </Style>
+                        <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+                            <Setter Property="Background" Value="#f0f0f0"/>
+                        </Style>
+                        <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+                            <Setter Property="Background" Value="Transparent"/>
                         </Style>
                     </ListBox.Styles>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid Tapped="ConversationItem_Tapped" Background="Transparent">
-                                <FlyoutBase.AttachedFlyout>
-                                    <MenuFlyout>
+                            <Grid PointerPressed="ConversationItem_PointerPressed" Background="Transparent">
+                                <Grid.ContextMenu>
+                                    <ContextMenu>
                                         <MenuItem Header="Copy" Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).CopyMessage}" CommandParameter="{Binding}"/>
                                         <MenuItem Header="Debug" Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).ShowDebug}" CommandParameter="{Binding}"/>
-                                    </MenuFlyout>
-                                </FlyoutBase.AttachedFlyout>
+                                    </ContextMenu>
+                                </Grid.ContextMenu>
                                 
-                                <md:MarkdownScrollViewer Markdown="{Binding Message}" 
+                                <md:MarkdownScrollViewer Markdown="{Binding DisplayMarkdown}" 
                                                         Margin="0"
-                                                        HorizontalAlignment="Stretch">
+                                                        HorizontalAlignment="Stretch"
+                                                        IsHitTestVisible="False">
                                     <md:MarkdownScrollViewer.Styles>
                                         <Style Selector="TextBlock">
                                             <Setter Property="FontSize" Value="13"/>
@@ -132,7 +139,10 @@
 
                             <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" Margin="0,5,0,0">
                                 <Button Content="Delete" Background="#AA3333" Command="{Binding DeleteSelectedAction}"/>
-                                <Button Content="Save" Background="#33AA33" Command="{Binding SaveSelectedAction}"/>
+                                <Button Content="Save" 
+                                        Background="{Binding CanSaveSelectedAction, Converter={StaticResource SaveButtonColorConverter}}" 
+                                        Command="{Binding SaveSelectedAction}" 
+                                        IsEnabled="{Binding CanSaveSelectedAction}"/>
                             </StackPanel>
 
                             <StackPanel Spacing="5">

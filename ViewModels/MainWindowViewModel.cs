@@ -23,16 +23,61 @@ using Avalonia.Input.Platform;
 
 namespace VoxAssist.Desktop.ViewModels;
 
-public class ConversationEntry : ViewModelBase
+public class InteractionRecord : ViewModelBase
 {
-    private string _message = "";
-    public string Message { get => _message; set => this.RaiseAndSetIfChanged(ref _message, value); }
+    public DateTime Timestamp { get; set; } = DateTime.Now;
     public string? ActionName { get; set; }
     public string? RawStt { get; set; }
     public string? LlmRequest { get; set; }
     public string? LlmResponse { get; set; }
+    public string? LlmMarkdown { get; set; }
+    public string? TypedText { get; set; }
+    public string? ErrorMessage { get; set; }
+    public bool IsSystemMessage { get; set; }
+    public string? SystemText { get; set; }
 
-    public override string ToString() => Message;
+    private string _displayMarkdown = "";
+    public string DisplayMarkdown 
+    { 
+        get => _displayMarkdown; 
+        set => this.RaiseAndSetIfChanged(ref _displayMarkdown, value); 
+    }
+
+    public void UpdateDisplay()
+    {
+        if (IsSystemMessage)
+        {
+            DisplayMarkdown = $"System: {SystemText}";
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            var prompt = string.IsNullOrEmpty(RawStt) ? "" : $"**You:** {RawStt}\n\n";
+            DisplayMarkdown = $"{prompt}**Error:** {ErrorMessage}";
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(LlmMarkdown))
+        {
+            DisplayMarkdown = $"**You:** {RawStt}\n\n**AI:** {LlmMarkdown}";
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(TypedText))
+        {
+            // Omit "You:" for standalone dictation/typing
+            DisplayMarkdown = $"**Typed:** {TypedText}";
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(RawStt))
+        {
+            DisplayMarkdown = $"**You:** {RawStt}";
+        }
+    }
+
+    public override string ToString() => DisplayMarkdown;
 }
 
 public class ActionViewModel : ViewModelBase
@@ -187,10 +232,10 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
-    public ObservableCollection<ConversationEntry> Conversation { get; } = new();
+    public ObservableCollection<InteractionRecord> Conversation { get; } = new();
 
-    private ConversationEntry? _selectedConversationEntry;
-    public ConversationEntry? SelectedConversationEntry 
+    private InteractionRecord? _selectedConversationEntry;
+    public InteractionRecord? SelectedConversationEntry 
     { 
         get => _selectedConversationEntry; 
         set => this.RaiseAndSetIfChanged(ref _selectedConversationEntry, value); 
@@ -199,19 +244,19 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private int _selectedTabIndex;
     public int SelectedTabIndex { get => _selectedTabIndex; set => this.RaiseAndSetIfChanged(ref _selectedTabIndex, value); }
 
-    public async Task CopyMessage(ConversationEntry entry)
+    public async Task CopyMessage(InteractionRecord entry)
     {
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && desktop.MainWindow != null)
         {
             var clipboard = desktop.MainWindow.Clipboard;
             if (clipboard != null)
             {
-                try { await clipboard.SetTextAsync(entry.Message); } catch { }
+                try { await clipboard.SetTextAsync(entry.DisplayMarkdown); } catch { }
             }
         }
     }
 
-    public async Task ShowDebug(ConversationEntry entry)
+    public async Task ShowDebug(InteractionRecord entry)
     {
         var dialog = new DebugDialog { DataContext = entry };
         var mainWindow = GetMainWindow();
@@ -246,10 +291,14 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         set 
         { 
             this.RaiseAndSetIfChanged(ref _selectedAction, value); 
+            if (_selectedAction != null) _selectedAction.IsDirty = false;
             this.RaisePropertyChanged(nameof(SelectedActionLlm));
             this.RaisePropertyChanged(nameof(IsPromptEnabled));
+            this.RaisePropertyChanged(nameof(CanSaveSelectedAction));
         } 
     }
+
+    public bool CanSaveSelectedAction => SelectedAction?.IsDirty ?? false;
 
     public LlmViewModel? SelectedActionLlm
     {
@@ -525,7 +574,10 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         
         UpdateLlmSelector();
         UpdateHotkeyService();
-        Conversation.Add(new ConversationEntry { Message = "System: Ready" });
+        
+        var readyRecord = new InteractionRecord { IsSystemMessage = true, SystemText = "Ready" };
+        readyRecord.UpdateDisplay();
+        Conversation.Add(readyRecord);
     }
 
     private void UpdateLlmSelector()
@@ -600,17 +652,21 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         _pcmChannel = System.Threading.Channels.Channel.CreateUnbounded<byte[]>();
         _audioCapture.StartRecording(SelectedMic?.Name ?? "Default");
 
+        var record = new InteractionRecord { ActionName = action.Name };
+
         _ = Task.Run(async () =>
         {
             try
             {
                 await Task.Delay(PreBufferMs, token);
-                await StartGrokStreaming(action, token);
+                await StartGrokStreaming(action, token, record);
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                Dispatcher.UIThread.Post(() => Conversation.Add(new ConversationEntry { Message = $"Error: {ex.Message}" }));
+                record.ErrorMessage = ex.Message;
+                record.UpdateDisplay();
+                Dispatcher.UIThread.Post(() => Conversation.Add(record));
             }
         });
     }
@@ -637,7 +693,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         MicStatus = "Finalizing...";
     }
 
-    private async Task StartGrokStreaming(ActionViewModel action, CancellationToken token)
+    private async Task StartGrokStreaming(ActionViewModel action, CancellationToken token, InteractionRecord record)
     {
         Status = $"Action: {action.Name} (Streaming...)";
         try
@@ -646,19 +702,23 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             if (provider == null || string.IsNullOrEmpty(provider.ApiKey))
             {
                 _sound.PlayError();
-                Dispatcher.UIThread.Post(() => Conversation.Add(new ConversationEntry { Message = "Error: Grok Provider not configured.", ActionName = action.Name }));
+                record.ErrorMessage = "Grok Provider not configured.";
+                record.UpdateDisplay();
+                Dispatcher.UIThread.Post(() => Conversation.Add(record));
                 return;
             }
             var text = await _grok.StreamSpeechToTextAsync(_pcmChannel!.Reader, provider.ApiKey, GrokLanguage, SelectedCompression, token);
             if (string.IsNullOrEmpty(text) || text.StartsWith("Error"))
             {
                 _sound.PlayError();
-                Dispatcher.UIThread.Post(() => Conversation.Add(new ConversationEntry { Message = $"STT Error: {text}", ActionName = action.Name }));
+                record.ErrorMessage = $"STT Error: {text}";
+                record.UpdateDisplay();
+                Dispatcher.UIThread.Post(() => Conversation.Add(record));
             }
             else
             {
-                Dispatcher.UIThread.Post(() => Conversation.Add(new ConversationEntry { Message = $"You: {text}", RawStt = text, ActionName = action.Name }));
-                await ProcessActionResponse(text, action);
+                record.RawStt = text;
+                await ProcessActionResponse(text, action, record);
             }
         }
         catch (Exception ex)
@@ -666,7 +726,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             if (!token.IsCancellationRequested)
             {
                 _sound.PlayError();
-                Dispatcher.UIThread.Post(() => Conversation.Add(new ConversationEntry { Message = $"Streaming Error: {ex.Message}", ActionName = action.Name }));
+                record.ErrorMessage = $"Streaming Error: {ex.Message}";
+                record.UpdateDisplay();
+                Dispatcher.UIThread.Post(() => Conversation.Add(record));
             }
         }
         finally
@@ -675,21 +737,21 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private async Task ProcessActionResponse(string text, ActionViewModel action)
+    private async Task ProcessActionResponse(string text, ActionViewModel action, InteractionRecord record)
     {
         if (action.AiModel != "None")
         {
             var isAppendMode = action.AiModel == "Append To Last Reply";
             
-            // For Append mode, we inherit from the last successful action
-            // Otherwise, we use the current selection
             var modelName = isAppendMode ? _lastSuccessfulModel : ((string.IsNullOrEmpty(action.AiModel) || action.AiModel == "Default") ? Llms.FirstOrDefault(l => l.IsDefault)?.Model : action.AiModel);
             var providerName = isAppendMode ? _lastSuccessfulProvider : null; 
 
             if (isAppendMode && (string.IsNullOrEmpty(_lastSuccessfulPrompt) || string.IsNullOrEmpty(modelName)))
             {
                 _sound.PlayError();
-                Dispatcher.UIThread.Post(() => Conversation.Add(new ConversationEntry { Message = "Error: No previous LLM action to append to.", RawStt = text, ActionName = action.Name }));
+                record.ErrorMessage = "No previous LLM action to append to.";
+                record.UpdateDisplay();
+                Dispatcher.UIThread.Post(() => Conversation.Add(record));
                 return;
             }
 
@@ -705,44 +767,35 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
                     if (isAppendMode)
                     {
-                        // Map last 10 conversation turns to structured messages
-                        var historyTurns = Conversation
-                            .Where(c => c.Message.StartsWith("You:") || c.Message.StartsWith("AI:") || c.Message.StartsWith("Typed:"))
+                        // Traverse history for clean context (skip system messages)
+                        var historyRecords = Conversation
+                            .Where(r => !r.IsSystemMessage && !string.IsNullOrEmpty(r.RawStt) && !string.IsNullOrEmpty(r.LlmMarkdown))
                             .TakeLast(10)
                             .ToList();
 
-                        foreach (var turn in historyTurns)
+                        foreach (var prev in historyRecords)
                         {
-                            var role = turn.Message.StartsWith("You:") ? "user" : "assistant";
-                            var content = turn.Message;
-                            if (content.Contains(": ")) content = content.Substring(content.IndexOf(": ") + 2);
-                            messages.Add(new ChatMessage { role = role, content = content });
+                            messages.Add(new ChatMessage { role = "user", content = prev.RawStt! });
+                            messages.Add(new ChatMessage { role = "assistant", content = prev.LlmMarkdown! });
                         }
                     }
-                    else
-                    {
-                        // New interaction: just add current user input
-                        messages.Add(new ChatMessage { role = "user", content = text });
-                    }
+                    
+                    // Add current interaction
+                    messages.Add(new ChatMessage { role = "user", content = text });
 
                     var result = await _grok.ProcessActionAsync(messages, llmProvider.ApiKey, llmProvider.HostUrl, model.Model);
                     if (result != null)
                     {
+                        record.LlmRequest = result.LlmRequest;
+                        record.LlmResponse = result.FullResponse;
+                        
                         if (!string.IsNullOrEmpty(result.Error))
                         {
                             _sound.PlayError();
-                            Dispatcher.UIThread.Post(() => Conversation.Add(new ConversationEntry 
-                            { 
-                                Message = $"Error: {result.Error}", 
-                                RawStt = text, 
-                                ActionName = action.Name,
-                                LlmRequest = result.LlmRequest, 
-                                LlmResponse = result.FullResponse ?? result.Error 
-                            }));
+                            record.ErrorMessage = result.Error;
                         }
                         else
                         {
-                            // If this was a successful NEW action (not append), store the params for next time
                             if (!isAppendMode)
                             {
                                 _lastSuccessfulPrompt = action.Prompt;
@@ -750,60 +803,47 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                                 _lastSuccessfulProvider = llmProvider.Name;
                             }
 
-                            if (!string.IsNullOrEmpty(result.Markdown)) 
-                            {
-                                Dispatcher.UIThread.Post(() => Conversation.Add(new ConversationEntry 
-                                { 
-                                    Message = $"AI: {result.Markdown}", 
-                                    RawStt = text, 
-                                    ActionName = action.Name,
-                                    LlmRequest = result.LlmRequest, 
-                                    LlmResponse = result.FullResponse ?? result.Markdown 
-                                }));
-                                
-                                if (action.ShowPopup)
-                                {
-                                    SelectedTabIndex = 0; // Switch to Conversation tab
-                                    Dispatcher.UIThread.Post(() => {
-                                        var owner = GetMainWindow();
-                                        if (owner != null)
-                                        {
-                                            owner.Activate();
-                                            if (owner.WindowState == WindowState.Minimized) owner.WindowState = WindowState.Normal;
-                                        }
-                                    });
-                                }
+                            record.LlmMarkdown = result.Markdown;
+                            record.TypedText = result.Keyboard;
 
-                                if (action.UseTts)
-                                {
-                                    _ = SpeakAsync(result.Markdown);
-                                }
+                            if (action.ShowPopup && !string.IsNullOrEmpty(result.Markdown))
+                            {
+                                SelectedTabIndex = 0;
+                                Dispatcher.UIThread.Post(() => {
+                                    var owner = GetMainWindow();
+                                    if (owner != null)
+                                    {
+                                        owner.Activate();
+                                        if (owner.WindowState == WindowState.Minimized) owner.WindowState = WindowState.Normal;
+                                    }
+                                });
                             }
+
+                            if (action.UseTts && !string.IsNullOrEmpty(result.Markdown))
+                            {
+                                _ = SpeakAsync(result.Markdown);
+                            }
+
                             if (!string.IsNullOrEmpty(result.Keyboard))
                             {
-                                if (string.IsNullOrEmpty(result.Markdown)) Dispatcher.UIThread.Post(() => Conversation.Add(new ConversationEntry 
-                                { 
-                                    Message = $"Typed: {result.Keyboard}", 
-                                    RawStt = text, 
-                                    ActionName = action.Name,
-                                    LlmRequest = result.LlmRequest, 
-                                    LlmResponse = result.FullResponse ?? result.Keyboard 
-                                }));
                                 await _keyboard.TypeTextAsync(result.Keyboard);
                             }
                         }
                     }
-                    else Dispatcher.UIThread.Post(() => Conversation.Add(new ConversationEntry { Message = "Error: LLM returned no result.", RawStt = text, ActionName = action.Name }));
+                    else record.ErrorMessage = "LLM returned no result.";
                 }
-                else Dispatcher.UIThread.Post(() => Conversation.Add(new ConversationEntry { Message = "Error: LLM Provider not configured.", RawStt = text, ActionName = action.Name }));
+                else record.ErrorMessage = "LLM Provider not configured.";
             }
-            else Dispatcher.UIThread.Post(() => Conversation.Add(new ConversationEntry { Message = "Error: No LLM Model found.", RawStt = text, ActionName = action.Name }));
+            else record.ErrorMessage = "No LLM Model found.";
         }
         else
         {
-            Dispatcher.UIThread.Post(() => Conversation.Add(new ConversationEntry { Message = $"Typed: {text}", RawStt = text, ActionName = action.Name }));
+            record.TypedText = text;
             await _keyboard.TypeTextAsync(text);
         }
+
+        record.UpdateDisplay();
+        Dispatcher.UIThread.Post(() => Conversation.Add(record));
     }
 
     public async Task SetActionHotkey()
@@ -830,7 +870,13 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         SaveLocalData();
     }
     
-    public void SaveSelectedAction() { SaveLocalData(); }
+    public void SaveSelectedAction() 
+    { 
+        SaveLocalData(); 
+        if (SelectedAction != null) SelectedAction.IsDirty = false;
+        this.RaisePropertyChanged(nameof(CanSaveSelectedAction));
+    }
+
     public void DeleteSelectedAction() { if (SelectedAction != null) { Actions.Remove(SelectedAction); SaveLocalData(); } }
 
     public async Task AddLlm()
@@ -874,7 +920,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     public async Task EditVoxStt()
     {
         var oldIsGrok = IsGrokStt; var oldUrl = VoxAssistHostUrl;
-        EditingGrokStt = true; EditingVoxStt = false; // Note: this was likely incorrect but preserving logic
+        EditingGrokStt = true; EditingVoxStt = false;
         var dialog = new SttConfigDialog(this); dialog.DataContext = dialog;
         var mainWindow = GetMainWindow();
         if (mainWindow != null) 
@@ -939,12 +985,10 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         
         try
         {
-            // Sanitize text for shell (strip quotes)
             var sanitized = text.Replace("\"", "").Replace("'", "");
             
             if (OperatingSystem.IsLinux())
             {
-                // Use spd-say which is standard on most Linux desktops
                 var process = new Process
                 {
                     StartInfo = new ProcessStartInfo
@@ -961,7 +1005,6 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             }
             else if (OperatingSystem.IsWindows())
             {
-                // Power shell fallback for Windows TTS
                 var process = new Process
                 {
                     StartInfo = new ProcessStartInfo

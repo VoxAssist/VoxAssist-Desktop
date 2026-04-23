@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:VoxAssist.Desktop.ViewModels"
         x:Class="VoxAssist.Desktop.Views.DebugDialog"
-        x:DataType="vm:ConversationEntry"
+        x:DataType="vm:InteractionRecord"
         Title="Interaction Debug"
         Width="800" Height="600"
         WindowStartupLocation="CenterOwner">

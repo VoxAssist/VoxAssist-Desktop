@@ -69,7 +69,7 @@ public class PrefixConverter : IValueConverter
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
         string? text = null;
-        if (value is VoxAssist.Desktop.ViewModels.ConversationEntry entry) text = entry.Message;
+        if (value is VoxAssist.Desktop.ViewModels.InteractionRecord record) text = record.DisplayMarkdown;
         else if (value is string s) text = s;
 
         if (text != null && text.Contains(": "))
@@ -86,7 +86,7 @@ public class MessageConverter : IValueConverter
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
         string? text = null;
-        if (value is VoxAssist.Desktop.ViewModels.ConversationEntry entry) text = entry.Message;
+        if (value is VoxAssist.Desktop.ViewModels.InteractionRecord record) text = record.DisplayMarkdown;
         else if (value is string s) text = s;
 
         if (text != null)
@@ -98,6 +98,19 @@ public class MessageConverter : IValueConverter
             return text;
         }
         return "";
+    }
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
+}
+
+public class SaveButtonColorConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is bool canSave && canSave)
+        {
+            return Brush.Parse("#33AA33"); // Green
+        }
+        return Brush.Parse("#666666"); // Gray
     }
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }

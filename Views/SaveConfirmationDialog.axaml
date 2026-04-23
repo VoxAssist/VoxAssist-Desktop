@@ -1,0 +1,17 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="VoxAssist.Desktop.Views.SaveConfirmationDialog"
+        Title="Unsaved Changes"
+        Width="350" Height="150"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+    <StackPanel Margin="20" Spacing="20">
+        <TextBlock Text="You have unsaved changes. Would you like to save them before proceeding?" 
+                   TextWrapping="Wrap"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+            <Button Content="Discard" CommandParameter="Discard" Click="Button_Click"/>
+            <Button Content="Cancel" CommandParameter="Cancel" Click="Button_Click"/>
+            <Button Content="Save" CommandParameter="Save" Click="Button_Click" Background="#2196F3" Foreground="White"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

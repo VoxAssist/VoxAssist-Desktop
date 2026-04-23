@@ -266,6 +266,30 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private int _selectedTabIndex;
     public int SelectedTabIndex { get => _selectedTabIndex; set => this.RaiseAndSetIfChanged(ref _selectedTabIndex, value); }
 
+    public async Task HandleTabChangeWithUnsavedChanges(int newIndex)
+    {
+        var result = await CheckUnsavedChangesAsync();
+        if (result == "Cancel")
+        {
+            return;
+        }
+        
+        if (result == "Save") SaveSelectedAction();
+        else if (result == "Discard") CancelSelectedAction();
+
+        SelectedTabIndex = newIndex;
+    }
+
+    private async Task<string> CheckUnsavedChangesAsync()
+    {
+        var mainWindow = GetMainWindow();
+        if (mainWindow == null) return "Discard";
+
+        var dialog = new SaveConfirmationDialog();
+        var result = await dialog.ShowDialog<string>(mainWindow);
+        return result ?? "Cancel";
+    }
+
     public async Task CopyMessage(InteractionRecord entry)
     {
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && desktop.MainWindow != null)
@@ -315,24 +339,53 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         get => _selectedAction; 
         set 
         { 
-            _selectedActionSubscription?.Dispose();
-            this.RaiseAndSetIfChanged(ref _selectedAction, value); 
-            _originalAction = value?.Clone();
-            
-            if (_selectedAction != null)
-            {
-                _selectedActionSubscription = _selectedAction.Changed.Subscribe(_ => 
-                {
-                    this.RaisePropertyChanged(nameof(CanSaveSelectedAction));
-                    this.RaisePropertyChanged(nameof(SelectedActionLlm));
-                    this.RaisePropertyChanged(nameof(IsPromptEnabled));
-                });
-            }
+            if (_selectedAction == value) return;
 
-            this.RaisePropertyChanged(nameof(SelectedActionLlm));
-            this.RaisePropertyChanged(nameof(IsPromptEnabled));
-            this.RaisePropertyChanged(nameof(CanSaveSelectedAction));
+            if (CanSaveSelectedAction)
+            {
+                _ = HandleActionSelectionChange(value);
+            }
+            else
+            {
+                UpdateSelectedAction(value);
+            }
         } 
+    }
+
+    private async Task HandleActionSelectionChange(ActionViewModel? newAction)
+    {
+        var result = await CheckUnsavedChangesAsync();
+        if (result == "Cancel")
+        {
+            this.RaisePropertyChanged(nameof(SelectedAction));
+            return;
+        }
+
+        if (result == "Save") SaveSelectedAction();
+        else if (result == "Discard") CancelSelectedAction();
+
+        UpdateSelectedAction(newAction);
+    }
+
+    private void UpdateSelectedAction(ActionViewModel? action)
+    {
+        _selectedActionSubscription?.Dispose();
+        this.RaiseAndSetIfChanged(ref _selectedAction, action, nameof(SelectedAction)); 
+        _originalAction = action?.Clone();
+        
+        if (_selectedAction != null)
+        {
+            _selectedActionSubscription = _selectedAction.Changed.Subscribe(_ => 
+            {
+                this.RaisePropertyChanged(nameof(CanSaveSelectedAction));
+                this.RaisePropertyChanged(nameof(SelectedActionLlm));
+                this.RaisePropertyChanged(nameof(IsPromptEnabled));
+            });
+        }
+
+        this.RaisePropertyChanged(nameof(SelectedActionLlm));
+        this.RaisePropertyChanged(nameof(IsPromptEnabled));
+        this.RaisePropertyChanged(nameof(CanSaveSelectedAction));
     }
 
     public bool CanSaveSelectedAction
@@ -909,9 +962,32 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
     public void AddAction() 
     { 
+        if (CanSaveSelectedAction)
+        {
+            _ = HandleAddActionAsync();
+        }
+        else
+        {
+            PerformAddAction();
+        }
+    }
+
+    private async Task HandleAddActionAsync()
+    {
+        var result = await CheckUnsavedChangesAsync();
+        if (result == "Cancel") return;
+
+        if (result == "Save") SaveSelectedAction();
+        else if (result == "Discard") CancelSelectedAction();
+
+        PerformAddAction();
+    }
+
+    private void PerformAddAction()
+    {
         var newAction = new ActionViewModel { Name = "New Action", Prompt = "You are a helpfull voice assistant", AiModel = "", ShowPopup = false, UseTts = false }; 
         Actions.Add(newAction);
-        SelectedAction = newAction;
+        UpdateSelectedAction(newAction);
         SaveLocalData();
     }
     

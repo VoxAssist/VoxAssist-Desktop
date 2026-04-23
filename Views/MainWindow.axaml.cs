@@ -65,6 +65,36 @@ public partial class MainWindow : Window
         }
     }
 
+    private void TabControl_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is MainWindowViewModel vm && sender is TabControl tabControl)
+        {
+            // We only care about explicit user tab switching (not internal updates)
+            if (e.Source is TabControl && e.RemovedItems.Count > 0)
+            {
+                var oldTab = e.RemovedItems[0] as TabItem;
+                if (oldTab?.Header?.ToString() == "Actions" && vm.CanSaveSelectedAction)
+                {
+                    // Find the index of the old tab
+                    int oldIndex = -1;
+                    for (int i = 0; i < tabControl.Items.Count; i++)
+                    {
+                        if (tabControl.Items[i] == oldTab) { oldIndex = i; break; }
+                    }
+
+                    if (oldIndex != -1 && tabControl.SelectedIndex != oldIndex)
+                    {
+                        // Temporarily revert UI selection while we ask the user
+                        int newIndex = tabControl.SelectedIndex;
+                        tabControl.SelectedIndex = oldIndex;
+                        
+                        _ = vm.HandleTabChangeWithUnsavedChanges(newIndex);
+                    }
+                }
+            }
+        }
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         base.OnClosed(e);

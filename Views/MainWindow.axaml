@@ -40,7 +40,7 @@
             </Grid>
         </Border>
 
-        <TabControl SelectedIndex="{Binding SelectedTabIndex}">
+        <TabControl SelectedIndex="{Binding SelectedTabIndex}" SelectionChanged="TabControl_SelectionChanged">
             <TabItem Header="Conversation">
                 <ListBox x:Name="ConversationListBox" 
                          ItemsSource="{Binding Conversation}" 

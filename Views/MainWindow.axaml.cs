@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using VoxAssist.Desktop.ViewModels;
+using VoxAssist.Desktop.Models;
 using System.Collections.Generic;
 using SharpHook.Native;
 using System;

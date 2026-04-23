@@ -68,6 +68,7 @@
                                 <Grid.ContextMenu>
                                     <ContextMenu>
                                         <MenuItem Header="Copy" Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).CopyMessage}" CommandParameter="{Binding}"/>
+                                        <MenuItem Header="Speech TTS" Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).SpeakInteraction}" CommandParameter="{Binding}"/>
                                         <MenuItem Header="Debug" Command="{Binding $parent[ListBox].((vm:MainWindowViewModel)DataContext).ShowDebug}" CommandParameter="{Binding}"/>
                                     </ContextMenu>
                                 </Grid.ContextMenu>

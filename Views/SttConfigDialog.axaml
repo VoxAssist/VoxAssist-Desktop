@@ -27,19 +27,24 @@
             </Grid>
 
             <TextBlock Text="Language Formatting:"/>
-            <ComboBox ItemsSource="{Binding #Root.MainVm.GrokLanguages}" 
+            <ComboBox ItemsSource="{Binding #Root.MainVm.GrokLanguages}"
                       SelectedValue="{Binding #Root.MainVm.GrokLanguage}"
                       SelectedValueBinding="{Binding Value}"
                       HorizontalAlignment="Stretch">
-                <ComboBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Key}"/>
-                    </DataTemplate>
-                </ComboBox.ItemTemplate>
+               <ComboBox.ItemTemplate>
+                   <DataTemplate>
+                       <TextBlock Text="{Binding Key}"/>
+                   </DataTemplate>
+               </ComboBox.ItemTemplate>
             </ComboBox>
-            
-            <TextBlock Text="Audio Compression:"/>
-            <ComboBox ItemsSource="{Binding CompressionTypes}" SelectedItem="{Binding SelectedCompression}" HorizontalAlignment="Stretch">
+
+            <TextBlock Text="TTS Voice:"/>
+            <ComboBox ItemsSource="{Binding #Root.MainVm.GrokTtsVoices}"
+                      SelectedItem="{Binding #Root.MainVm.GrokTtsVoice}"
+                      HorizontalAlignment="Stretch">
+            </ComboBox>
+
+            <TextBlock Text="Audio Compression:"/>            <ComboBox ItemsSource="{Binding CompressionTypes}" SelectedItem="{Binding SelectedCompression}" HorizontalAlignment="Stretch">
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
                         <TextBlock Text="{Binding Converter={StaticResource CompressionNameConverter}}"/>

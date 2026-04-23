@@ -101,8 +101,15 @@ public class AudioCaptureService : IDisposable
         if (!IsRecording) return Array.Empty<byte>();
         
         IsRecording = false;
-        Bass.ChannelStop(_recordHandle);
-        _recordHandle = 0;
+        if (_recordHandle != 0)
+        {
+            Bass.ChannelStop(_recordHandle);
+            _recordHandle = 0;
+        }
+        
+        // CRITICAL: Fully free the record device to release hardware locks on Linux.
+        // This allows BASS playback streams (like TTS) to access the hardware immediately after.
+        Bass.RecordFree();
 
         if (_audioData == null) return Array.Empty<byte>();
 

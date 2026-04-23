@@ -1,8 +1,9 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:VoxAssist.Desktop.ViewModels"
+        xmlns:m="using:VoxAssist.Desktop.Models"
         x:Class="VoxAssist.Desktop.Views.DebugDialog"
-        x:DataType="vm:InteractionRecord"
+        x:DataType="m:InteractionRecord"
         Title="Interaction Debug"
         Width="800" Height="600"
         WindowStartupLocation="CenterOwner">

@@ -11,7 +11,7 @@ public class GrokTtsService
 {
     private readonly HttpClient _httpClient = new();
 
-    public async Task<byte[]?> GenerateSpeechAsync(string text, string apiKey, string voiceId = "eve")
+    public async Task<byte[]?> GenerateSpeechAsync(string text, string apiKey, string voiceId = "eve", string language = "en")
     {
         try
         {
@@ -19,7 +19,7 @@ public class GrokTtsService
             {
                 text = text,
                 voice_id = voiceId,
-                language = "en",
+                language = language,
                 output_format = new
                 {
                     codec = "mp3",

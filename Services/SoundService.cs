@@ -136,6 +136,72 @@ public class SoundService : IDisposable
         }
     }
 
+    public void StopAll()
+    {
+        // Stop any active instances of these samples
+        if (_chirpSample != 0) Bass.SampleStop(_chirpSample);
+        if (_errorSample != 0) Bass.SampleStop(_errorSample);
+    }
+
+    public Task PlayAudioAsync(byte[] audioData)
+    {
+        if (audioData == null || audioData.Length == 0) return Task.CompletedTask;
+
+        var tcs = new TaskCompletionSource<bool>();
+
+        try
+        {
+            // Stop existing chirps before playing TTS to avoid clashes
+            StopAll();
+            
+            // We MUST pin the data manually and keep it pinned until the stream finishes.
+            GCHandle pinned = GCHandle.Alloc(audioData, GCHandleType.Pinned);
+            
+            // Create a stream from the pinned memory pointer
+            int stream = Bass.CreateStream(pinned.AddrOfPinnedObject(), 0, audioData.Length, BassFlags.AutoFree);
+            
+            if (stream != 0)
+            {
+                // Explicitly set volume to maximum
+                Bass.ChannelSetAttribute(stream, ChannelAttribute.Volume, 1.0f);
+
+                // Set a sync to free the GCHandle and complete the task when playback ends
+                Bass.ChannelSetSync(stream, SyncFlags.End | SyncFlags.Onetime, 0, (handle, channel, data, user) => {
+                    pinned.Free();
+                    tcs.TrySetResult(true);
+                    Console.WriteLine("SoundService: Playback finished.");
+                });
+
+                if (Bass.ChannelPlay(stream))
+                {
+                    Console.WriteLine($"SoundService: Playing MP3 stream {stream} ({audioData.Length} bytes)");
+                }
+                else
+                {
+                    Console.WriteLine($"SoundService: ChannelPlay failed: {Bass.LastError}");
+                    pinned.Free();
+                    tcs.TrySetResult(false);
+                }
+            }
+            else
+            {
+                Console.WriteLine($"SoundService: CreateStream failed: {Bass.LastError}");
+                pinned.Free();
+                tcs.TrySetResult(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"SoundService: Exception in PlayAudio: {ex.Message}");
+            tcs.SetException(ex);
+        }
+
+        return tcs.Task;
+    }
+
+    [Obsolete("Use PlayAudioAsync instead")]
+    public void PlayAudio(byte[] audioData) => _ = PlayAudioAsync(audioData);
+
     public void Dispose()
     {
         if (_chirpSample != 0) Bass.SampleFree(_chirpSample);

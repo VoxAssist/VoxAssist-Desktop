@@ -42,5 +42,6 @@ public class UserConfig
     public bool IsGrokStt { get; set; } = true;
     public string GrokProvider { get; set; } = "";
     public string GrokLanguage { get; set; } = "en";
+    public string GrokTtsVoice { get; set; } = "eve";
     public string VoxAssistHostUrl { get; set; } = "";
 }

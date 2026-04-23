@@ -23,63 +23,6 @@ using Avalonia.Input.Platform;
 
 namespace VoxAssist.Desktop.ViewModels;
 
-public class InteractionRecord : ViewModelBase
-{
-    public DateTime Timestamp { get; set; } = DateTime.Now;
-    public string? ActionName { get; set; }
-    public string? RawStt { get; set; }
-    public string? LlmRequest { get; set; }
-    public string? LlmResponse { get; set; }
-    public string? LlmMarkdown { get; set; }
-    public string? TypedText { get; set; }
-    public string? ErrorMessage { get; set; }
-    public bool IsSystemMessage { get; set; }
-    public string? SystemText { get; set; }
-
-    private string _displayMarkdown = "";
-    public string DisplayMarkdown 
-    { 
-        get => _displayMarkdown; 
-        set => this.RaiseAndSetIfChanged(ref _displayMarkdown, value); 
-    }
-
-    public void UpdateDisplay()
-    {
-        if (IsSystemMessage)
-        {
-            DisplayMarkdown = $"System: {SystemText}";
-            return;
-        }
-
-        if (!string.IsNullOrEmpty(ErrorMessage))
-        {
-            var prompt = string.IsNullOrEmpty(RawStt) ? "" : $"**You:** {RawStt}\n\n";
-            DisplayMarkdown = $"{prompt}**Error:** {ErrorMessage}";
-            return;
-        }
-
-        if (!string.IsNullOrEmpty(LlmMarkdown))
-        {
-            DisplayMarkdown = $"**You:** {RawStt}\n\n**AI:** {LlmMarkdown}";
-            return;
-        }
-
-        if (!string.IsNullOrEmpty(TypedText))
-        {
-            // Omit "You:" for standalone dictation/typing
-            DisplayMarkdown = $"**Typed:** {TypedText}";
-            return;
-        }
-
-        if (!string.IsNullOrEmpty(RawStt))
-        {
-            DisplayMarkdown = $"**You:** {RawStt}";
-        }
-    }
-
-    public override string ToString() => DisplayMarkdown;
-}
-
 public class ActionViewModel : ViewModelBase
 {
     private string _name = "";
@@ -302,6 +245,17 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
+    public async Task SpeakInteraction(InteractionRecord entry)
+    {
+        if (entry == null) return;
+        // Priority: AI Response > User Speech > Typed Text > System Text
+        var text = entry.LlmMarkdown ?? entry.RawStt ?? entry.TypedText ?? entry.SystemText ?? "";
+        if (!string.IsNullOrEmpty(text))
+        {
+            await SpeakTtsAsync(text, null);
+        }
+    }
+
     public async Task ShowDebug(InteractionRecord entry)
     {
         var dialog = new DebugDialog { DataContext = entry };
@@ -489,6 +443,10 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private string _grokLanguage = "en";
     public string GrokLanguage { get => _grokLanguage; set => this.RaiseAndSetIfChanged(ref _grokLanguage, value); }
 
+    public ObservableCollection<string> GrokTtsVoices { get; } = new() { "eve", "caleb", "viona", "lyra", "jace" };
+    private string _grokTtsVoice = "eve";
+    public string GrokTtsVoice { get => _grokTtsVoice; set => this.RaiseAndSetIfChanged(ref _grokTtsVoice, value); }
+
     private string _voxAssistHostUrl = "";
     public string VoxAssistHostUrl { get => _voxAssistHostUrl; set => this.RaiseAndSetIfChanged(ref _voxAssistHostUrl, value); }
 
@@ -644,6 +602,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                     IsGrokStt = config.IsGrokStt;
                     GrokProvider = string.IsNullOrEmpty(config.GrokProvider) ? "xAI" : config.GrokProvider;
                     GrokLanguage = string.IsNullOrEmpty(config.GrokLanguage) ? "en" : config.GrokLanguage;
+                    GrokTtsVoice = string.IsNullOrEmpty(config.GrokTtsVoice) ? "eve" : config.GrokTtsVoice;
                     VoxAssistHostUrl = config.VoxAssistHostUrl;
                 }
             }
@@ -784,7 +743,6 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             Status = "Ready";
             return;
         }
-        await Task.Delay(500);
         await _audioCapture.StopRecordingAsync();
         _pcmChannel?.Writer.TryComplete();
         _sound.PlayDoubleChirp();
@@ -904,6 +862,10 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                             record.LlmMarkdown = result.Markdown;
                             record.TypedText = result.Keyboard;
 
+                            // Update display and add to conversation BEFORE long-running TTS/Typing
+                            record.UpdateDisplay();
+                            Dispatcher.UIThread.Post(() => Conversation.Add(record));
+
                             if (action.ShowPopup && !string.IsNullOrEmpty(result.Markdown))
                             {
                                 SelectedTabIndex = 0;
@@ -919,13 +881,16 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
                             if (action.UseTts && !string.IsNullOrEmpty(result.Markdown))
                             {
-                                _ = SpeakAsync(result.Markdown);
+                                await Task.Delay(100);
+                                await SpeakTtsAsync(result.Markdown, result.Keyboard);
                             }
 
                             if (!string.IsNullOrEmpty(result.Keyboard))
                             {
                                 await _keyboard.TypeTextAsync(result.Keyboard);
                             }
+
+                            return; // Already added and updated
                         }
                     }
                     else record.ErrorMessage = "LLM returned no result.";
@@ -1098,7 +1063,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         {
             var settingsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings");
             if (!Directory.Exists(settingsDir)) Directory.CreateDirectory(settingsDir);
-            var config = new UserConfig { IsCcw = IsCcw, IsGrokStt = IsGrokStt, GrokProvider = GrokProvider, GrokLanguage = GrokLanguage, VoxAssistHostUrl = VoxAssistHostUrl };
+            var config = new UserConfig { IsCcw = IsCcw, IsGrokStt = IsGrokStt, GrokProvider = GrokProvider, GrokLanguage = GrokLanguage, GrokTtsVoice = GrokTtsVoice, VoxAssistHostUrl = VoxAssistHostUrl };
             File.WriteAllText(Path.Combine(settingsDir, "settings.json"), System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
             var providers = AiProviders.Select(p => new AiProviderConfig { Name = p.Name, HostUrl = p.HostUrl, ApiKey = p.ApiKey }).ToList();
             File.WriteAllText(Path.Combine(settingsDir, "ai_providers.json"), System.Text.Json.JsonSerializer.Serialize(providers, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
@@ -1117,27 +1082,74 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         } catch { }
     }
 
+    private async Task SpeakTtsAsync(string markdown, string? keyboard)
+    {
+        var textToSpeak = string.IsNullOrWhiteSpace(markdown) ? keyboard : markdown;
+        if (string.IsNullOrWhiteSpace(textToSpeak)) 
+        {
+            Console.WriteLine("TTS: Nothing to speak.");
+            return;
+        }
+
+        try
+        {
+            var provider = AiProviders.FirstOrDefault(p => p.Name == GrokProvider);
+            if (provider != null && !string.IsNullOrEmpty(provider.ApiKey))
+            {
+                Console.WriteLine($"TTS: Attempting Grok TTS with voice {GrokTtsVoice} and language {GrokLanguage}...");
+                var audioData = await _grokTts.GenerateSpeechAsync(textToSpeak, provider.ApiKey, GrokTtsVoice, GrokLanguage);
+                if (audioData != null)
+                {
+                    Console.WriteLine($"TTS: Grok TTS successful, playing {audioData.Length} bytes.");
+                    await _sound.PlayAudioAsync(audioData);
+                    return;
+                }
+                else
+                {
+                    Console.WriteLine("TTS: Grok TTS returned null audio data.");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"TTS: Grok Provider '{GrokProvider}' not found or has no API key.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Grok TTS Error: {ex.Message}");
+        }
+
+        // Fallback to system TTS
+        Console.WriteLine("TTS: Falling back to system TTS...");
+        await SpeakAsync(textToSpeak!);
+    }
+
     private async Task SpeakAsync(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
         
         try
         {
-            var sanitized = text.Replace("\"", "").Replace("'", "");
+            var sanitized = text.Replace("\"", "\\\"").Replace("'", "");
             
             if (OperatingSystem.IsLinux())
             {
+                var spdSayPath = "/usr/bin/spd-say";
+                if (!File.Exists(spdSayPath)) spdSayPath = "spd-say";
+
                 var process = new Process
                 {
                     StartInfo = new ProcessStartInfo
                     {
-                        FileName = "spd-say",
-                        Arguments = $"\"{sanitized}\"",
+                        FileName = spdSayPath,
                         RedirectStandardOutput = true,
+                        RedirectStandardError = true,
                         UseShellExecute = false,
                         CreateNoWindow = true
                     }
                 };
+                process.StartInfo.ArgumentList.Add(text);
+
                 process.Start();
                 await process.WaitForExitAsync();
             }

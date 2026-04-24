@@ -15,20 +15,24 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="Native/linux-x64/libbass.so" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
-      <Link>runtimes/linux-x64/native/libbass.so</Link>
+    <!-- Linux x64 -->
+    <None Include="Native/linux-x64/*.so">
+      <Link>runtimes/linux-x64/native/%(FileName)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="Native/linux-x64/libbassmix.so" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
-      <Link>runtimes/linux-x64/native/libbassmix.so</Link>
+    <!-- Windows x64 -->
+    <None Include="Native/win-x64/*.dll">
+      <Link>runtimes/win-x64/native/%(FileName)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="Native/linux-x64/libbassenc.so" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
-      <Link>runtimes/linux-x64/native/libbassenc.so</Link>
+    <!-- macOS x64 (Intel) -->
+    <None Include="Native/osx-x64/*.dylib">
+      <Link>runtimes/osx-x64/native/%(FileName)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="Native/linux-x64/libbassenc_flac.so" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
-      <Link>runtimes/linux-x64/native/libbassenc_flac.so</Link>
+    <!-- macOS Arm64 (Apple Silicon) -->
+    <None Include="Native/osx-arm64/*.dylib">
+      <Link>runtimes/osx-arm64/native/%(FileName)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

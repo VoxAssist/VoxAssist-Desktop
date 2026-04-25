@@ -16,25 +16,21 @@
 
   <ItemGroup>
     <!-- Linux x64 -->
-    <None Include="Native/linux-x64/*.so">
-      <Link>runtimes/linux-x64/native/%(FileName)%(Extension)</Link>
+    <Content Include="Native/linux-x64/*.so" Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    </Content>
     <!-- Windows x64 -->
-    <None Include="Native/win-x64/*.dll">
-      <Link>runtimes/win-x64/native/%(FileName)%(Extension)</Link>
+    <Content Include="Native/win-x64/*.dll" Condition="'$(RuntimeIdentifier)' == 'win-x64'">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    </Content>
     <!-- macOS x64 (Intel) -->
-    <None Include="Native/osx-x64/*.dylib">
-      <Link>runtimes/osx-x64/native/%(FileName)%(Extension)</Link>
+    <Content Include="Native/osx-x64/*.dylib" Condition="'$(RuntimeIdentifier)' == 'osx-x64'">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    </Content>
     <!-- macOS Arm64 (Apple Silicon) -->
-    <None Include="Native/osx-arm64/*.dylib">
-      <Link>runtimes/osx-arm64/native/%(FileName)%(Extension)</Link>
+    <Content Include="Native/osx-arm64/*.dylib" Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

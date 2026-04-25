@@ -5,10 +5,10 @@
         x:Class="VoxAssist.Desktop.Views.SttConfigDialog"
         x:DataType="Views:SttConfigDialog"
         x:Name="Root"
-        Title="Speech to Text Configuration" Width="400" Height="300"
-        WindowStartupLocation="CenterOwner"
-        CanResize="False">
-    <StackPanel Margin="20" Spacing="10" DataContext="{Binding #Root.MainVm}" x:DataType="vm:MainWindowViewModel">
+        Title="Speech to Text Configuration" Width="400" Height="500"
+        WindowStartupLocation="CenterOwner">
+    <ScrollViewer>
+        <StackPanel Margin="20" Spacing="10" DataContext="{Binding #Root.MainVm}" x:DataType="vm:MainWindowViewModel">
         <!-- Grok Configuration -->
         <StackPanel IsVisible="{Binding EditingGrokStt}" Spacing="10">
             <TextBlock Text="Grok Provider:"/>
@@ -64,4 +64,5 @@
             <Button Content="Save" Background="#33AA33" Click="SaveClick" Width="100" HorizontalContentAlignment="Center"/>
         </StackPanel>
     </StackPanel>
+    </ScrollViewer>
 </Window>

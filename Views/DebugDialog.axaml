@@ -1,31 +1,96 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:vm="using:VoxAssist.Desktop.ViewModels"
         xmlns:m="using:VoxAssist.Desktop.Models"
         x:Class="VoxAssist.Desktop.Views.DebugDialog"
         x:DataType="m:InteractionRecord"
-        Title="Interaction Debug"
-        Width="800" Height="600"
+        Title="Interaction Debug" Width="550" Height="500"
         WindowStartupLocation="CenterOwner">
-
-    <DockPanel Margin="10">
-        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-            <TextBlock Text="Action Selected:" FontWeight="Bold" FontSize="12" Foreground="Gray"/>
-            <TextBlock Text="{Binding ActionName}" FontSize="18" FontWeight="SemiBold" Margin="0,2,0,0"/>
-            <Separator Margin="0,5,0,0"/>
-        </StackPanel>
-
-        <Button DockPanel.Dock="Bottom" Content="Close" Click="Close_Click" HorizontalAlignment="Right" Margin="0,10,0,0"/>
+    <DockPanel>
+        <Button DockPanel.Dock="Bottom" Content="Close" Click="Close_Click" 
+                HorizontalAlignment="Right" Margin="10" Width="80" 
+                HorizontalContentAlignment="Center"/>
         
-        <TabControl>
+        <TabControl Margin="10">
+            <TabItem Header="Statistics">
+                <ScrollViewer>
+                    <StackPanel Spacing="15" Margin="10">
+                        <StackPanel.Styles>
+                            <Style Selector="TextBlock.Label">
+                                <Setter Property="FontWeight" Value="Bold"/>
+                                <Setter Property="Foreground" Value="#888888"/>
+                                <Setter Property="FontSize" Value="12"/>
+                            </Style>
+                            <Style Selector="TextBlock.Value">
+                                <Setter Property="FontSize" Value="14"/>
+                                <Setter Property="Margin" Value="0,2,0,0"/>
+                            </Style>
+                        </StackPanel.Styles>
+
+                        <StackPanel>
+                            <TextBlock Text="Audio Duration:" Classes="Label"/>
+                            <TextBlock Text="{Binding AudioDuration, StringFormat={}{0:F2} seconds}" Classes="Value"/>
+                        </StackPanel>
+
+                        <StackPanel>
+                            <TextBlock Text="Raw Audio Bytes:" Classes="Label"/>
+                            <TextBlock Text="{Binding RawAudioBytes, StringFormat={}{0:N0} bytes}" Classes="Value"/>
+                        </StackPanel>
+
+                        <StackPanel>
+                            <TextBlock Text="Compression:" Classes="Label"/>
+                            <TextBlock Text="{Binding Compression}" Classes="Value"/>
+                        </StackPanel>
+
+                        <StackPanel>
+                            <TextBlock Text="Bytes Sent:" Classes="Label"/>
+                            <TextBlock Text="{Binding BytesSent, StringFormat={}{0:N0} bytes}" Classes="Value"/>
+                        </StackPanel>
+
+                        <StackPanel>
+                            <TextBlock Text="Compression Savings:" Classes="Label"/>
+                            <TextBlock Text="{Binding CompressionSavings, StringFormat={}{0:F1}%}" Classes="Value"/>
+                        </StackPanel>
+
+                        <StackPanel>
+                            <TextBlock Text="TTS Duration (STT Latency):" Classes="Label"/>
+                            <TextBlock Text="{Binding TtsDurationMs, StringFormat={}{0:F0} ms}" Classes="Value"/>
+                        </StackPanel>
+
+                        <StackPanel>
+                            <TextBlock Text="Speech Gen Duration:" Classes="Label"/>
+                            <TextBlock Text="{Binding SpeechGenDurationMs, StringFormat={}{0:F0} ms}" Classes="Value"/>
+                        </StackPanel>
+
+                        <StackPanel>
+                            <TextBlock Text="Post Processing Duration:" Classes="Label"/>
+                            <TextBlock Text="{Binding PostProcessingDurationMs, StringFormat={}{0:F0} ms}" Classes="Value"/>
+                        </StackPanel>
+
+                        <StackPanel>
+                            <TextBlock Text="LLM Model:" Classes="Label"/>
+                            <TextBlock Text="{Binding LlmModel}" Classes="Value"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <TabItem Header="Raw STT">
-                <TextBox Text="{Binding RawStt}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"/>
+                <TextBox Text="{Binding RawStt}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Margin="10"/>
             </TabItem>
-            <TabItem Header="LLM Request">
-                <TextBox Text="{Binding LlmRequest}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"/>
-            </TabItem>
-            <TabItem Header="LLM Response">
-                <TextBox Text="{Binding LlmResponse}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"/>
+            
+            <TabItem Header="LLM">
+                <ScrollViewer>
+                    <StackPanel Margin="10" Spacing="20">
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="LLM Request:" FontWeight="Bold"/>
+                            <TextBox Text="{Binding LlmRequest}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Background="#f5f5f5"/>
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="LLM Response:" FontWeight="Bold"/>
+                            <TextBox Text="{Binding LlmResponse}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Background="#f5f5f5"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
             </TabItem>
         </TabControl>
     </DockPanel>

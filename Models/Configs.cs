@@ -44,4 +44,5 @@ public class UserConfig
     public string GrokLanguage { get; set; } = "en";
     public string GrokTtsVoice { get; set; } = "eve";
     public string VoxAssistHostUrl { get; set; } = "";
+    public CompressionType SelectedCompression { get; set; } = CompressionType.None;
 }

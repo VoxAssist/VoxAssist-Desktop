@@ -26,6 +26,15 @@ public class GrokResponse
     public string? FullResponse { get; set; }
 }
 
+public class SttResult
+{
+    public string Text { get; set; } = "";
+    public double Duration { get; set; }
+    public string Format { get; set; } = "PCM";
+    public long RawBytes { get; set; }
+    public long BytesSent { get; set; }
+}
+
 public class GrokService
 {
     private readonly HttpClient _httpClient;
@@ -35,14 +44,18 @@ public class GrokService
         _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
     }
 
-    public async Task<string> StreamSpeechToTextAsync(ChannelReader<byte[]> pcmReader, string apiKey, string language, CompressionType compression, CancellationToken ct)
+    public async Task<SttResult> StreamSpeechToTextAsync(ChannelReader<byte[]> pcmReader, string apiKey, string language, CompressionType compression, CancellationToken ct)
     {
+        var result = new SttResult { Format = compression == CompressionType.None ? "PCM" : compression.ToString() };
+        long rawBytes = 0;
+        long bytesSentTotal = 0;
+
         try
         {
             if (!Bass.Init(0)) 
             {
                 if (Bass.LastError != Errors.Already)
-                    return $"Error: BASS Init failed: {Bass.LastError}";
+                    return new SttResult { Text = $"Error: BASS Init failed: {Bass.LastError}" };
             }
 
             var boundary = "----VoxAssistBoundary" + Guid.NewGuid().ToString("N");
@@ -57,18 +70,31 @@ public class GrokService
                 await WriteFormField(writer, boundary, "language", language);
                 await WriteFormField(writer, boundary, "format", "true");
 
+                string fileName = compression == CompressionType.Flac ? "audio.flac" : "audio.wav";
+                string contentType = compression == CompressionType.Flac ? "audio/flac" : "audio/wav";
+
                 await writer.WriteAsync($"--{boundary}\r\n");
-                await writer.WriteAsync($"Content-Disposition: form-data; name=\"file\"; filename=\"audio.{(compression == CompressionType.Flac ? "flac" : "wav")}\"\r\n");
-                await writer.WriteAsync($"Content-Type: {(compression == CompressionType.Flac ? "audio/flac" : "audio/wav")}\r\n\r\n");
+                await writer.WriteAsync($"Content-Disposition: form-data; name=\"file\"; filename=\"{fileName}\"\r\n");
+                await writer.WriteAsync($"Content-Type: {contentType}\r\n\r\n");
                 await writer.FlushAsync();
 
                 if (compression == CompressionType.Flac)
                 {
-                    await StreamEncodeToFlacAsync(pcmReader, outputStream, ct);
+                    var res = await StreamEncodeToFlacAsync(pcmReader, outputStream, ct);
+                    rawBytes = res.raw;
+                    bytesSentTotal = res.sent;
+                }
+                else if (compression == CompressionType.G711)
+                {
+                    var res = await StreamEncodeToG711Async(pcmReader, outputStream, ct);
+                    rawBytes = res.raw;
+                    bytesSentTotal = res.sent;
                 }
                 else
                 {
-                    await StreamRawToWavAsync(pcmReader, outputStream, ct);
+                    var res = await StreamRawToWavAsync(pcmReader, outputStream, ct);
+                    rawBytes = res.raw;
+                    bytesSentTotal = res.sent;
                 }
 
                 await writer.WriteAsync($"\r\n--{boundary}--\r\n");
@@ -83,16 +109,23 @@ public class GrokService
 
             if (!response.IsSuccessStatusCode)
             {
-                return $"Error: {response.StatusCode} - {resultJson}";
+                result.Text = $"Error: {response.StatusCode} - {resultJson}";
+                return result;
             }
 
             using var doc = JsonDocument.Parse(resultJson);
-            return doc.RootElement.GetProperty("text").GetString() ?? "";
+            result.Text = doc.RootElement.GetProperty("text").GetString() ?? "";
+            result.RawBytes = rawBytes;
+            result.BytesSent = bytesSentTotal;
+            result.Duration = rawBytes / 32000.0;
+            
+            return result;
         }
-        catch (OperationCanceledException) { return "Cancelled"; }
+        catch (OperationCanceledException) { result.Text = "Cancelled"; return result; }
         catch (Exception ex)
         {
-            return $"Error in streaming STT: {ex.Message}";
+            result.Text = $"Error in streaming STT: {ex.Message}";
+            return result;
         }
     }
 
@@ -103,8 +136,53 @@ public class GrokService
         await writer.WriteAsync($"{value}\r\n");
     }
 
-    private async Task StreamEncodeToFlacAsync(ChannelReader<byte[]> reader, Stream outputStream, CancellationToken ct)
+    private async Task<(long raw, long sent)> StreamEncodeToG711Async(ChannelReader<byte[]> reader, Stream outputStream, CancellationToken ct)
     {
+        long pcmBytesProcessed = 0;
+        long bytesSent = 0;
+
+        var ms = new MemoryStream();
+        AddWavHeaderToStream(ms, 100 * 1024 * 1024, isG711: true); 
+        var header = ms.ToArray();
+        await outputStream.WriteAsync(header, 0, header.Length, ct);
+        bytesSent += header.Length;
+
+        while (await reader.WaitToReadAsync(ct))
+        {
+            while (reader.TryRead(out var chunk))
+            {
+                pcmBytesProcessed += chunk.Length;
+                byte[] encoded = new byte[chunk.Length / 2];
+                for (int i = 0; i < encoded.Length; i++)
+                {
+                    short sample = BitConverter.ToInt16(chunk, i * 2);
+                    encoded[i] = LinearToMuLaw(sample);
+                }
+                await outputStream.WriteAsync(encoded, 0, encoded.Length, ct);
+                bytesSent += encoded.Length;
+            }
+        }
+        return (pcmBytesProcessed, bytesSent);
+    }
+
+    private static byte LinearToMuLaw(short sample)
+    {
+        const int cBias = 0x84;
+        const int cClip = 32635;
+        int sign = (sample >> 8) & 0x80;
+        if (sign != 0) sample = (short)-sample;
+        if (sample > cClip) sample = (short)cClip;
+        sample += cBias;
+        int exponent = 7;
+        for (int expMask = 0x4000; (sample & expMask) == 0 && exponent > 0; exponent--, expMask >>= 1) { }
+        int mantissa = (sample >> (exponent + 3)) & 0x0F;
+        return (byte)(~(sign | (exponent << 4) | mantissa));
+    }
+
+    private async Task<(long raw, long sent)> StreamEncodeToFlacAsync(ChannelReader<byte[]> reader, Stream outputStream, CancellationToken ct)
+    {
+        long pcmBytesProcessed = 0;
+        long bytesSent = 0;
         int pushStream = Bass.CreateStream(16000, 1, BassFlags.Decode, StreamProcedureType.Push);
         if (pushStream == 0) throw new Exception($"BASS CreateStream error: {Bass.LastError}");
 
@@ -116,6 +194,7 @@ public class GrokService
                 Marshal.Copy(buffer, data, 0, len);
                 outputStream.Write(data, 0, len);
                 outputStream.Flush();
+                bytesSent += len;
             });
 
             var flacEncoder = BassEnc_Flac.Start(pushStream, "-8 -", EncodeFlags.NoHeader, encodeCallback, IntPtr.Zero);
@@ -125,6 +204,7 @@ public class GrokService
             {
                 while (reader.TryRead(out var chunk))
                 {
+                    pcmBytesProcessed += chunk.Length;
                     Bass.StreamPutData(pushStream, chunk, chunk.Length);
                     byte[] dummy = new byte[chunk.Length];
                     Bass.ChannelGetData(pushStream, dummy, dummy.Length);
@@ -134,29 +214,33 @@ public class GrokService
             Bass.StreamPutData(pushStream, IntPtr.Zero, 0);
             byte[] finalDummy = new byte[4096];
             while (Bass.ChannelGetData(pushStream, finalDummy, finalDummy.Length) > 0) { }
-
             BassEnc.EncodeStop(flacEncoder);
         }
-        finally
-        {
-            Bass.StreamFree(pushStream);
-        }
+        finally { Bass.StreamFree(pushStream); }
+        return (pcmBytesProcessed, bytesSent);
     }
 
-    private async Task StreamRawToWavAsync(ChannelReader<byte[]> reader, Stream outputStream, CancellationToken ct)
+    private async Task<(long raw, long sent)> StreamRawToWavAsync(ChannelReader<byte[]> reader, Stream outputStream, CancellationToken ct)
     {
+        long pcmBytesProcessed = 0;
+        long bytesSent = 0;
         var ms = new MemoryStream();
-        AddWavHeaderToStream(ms, 0x7FFFFFFF); 
-        outputStream.Write(ms.ToArray(), 0, 44);
+        AddWavHeaderToStream(ms, 100 * 1024 * 1024, isG711: false); 
+        var header = ms.ToArray();
+        outputStream.Write(header, 0, 44);
+        bytesSent += 44;
 
         while (await reader.WaitToReadAsync(ct))
         {
             while (reader.TryRead(out var chunk))
             {
+                pcmBytesProcessed += chunk.Length;
                 await outputStream.WriteAsync(chunk, 0, chunk.Length, ct);
                 await outputStream.FlushAsync(ct);
+                bytesSent += chunk.Length;
             }
         }
+        return (pcmBytesProcessed, bytesSent);
     }
 
     public async Task<string> SpeechToTextAsync(Stream rawAudioStream, long length, string apiKey, string language, CompressionType compression)
@@ -181,7 +265,7 @@ public class GrokService
             else
             {
                 var ms = new MemoryStream();
-                AddWavHeaderToStream(ms, (int)length);
+                AddWavHeaderToStream(ms, (int)length, compression == CompressionType.G711);
                 rawAudioStream.Position = 0;
                 await rawAudioStream.CopyToAsync(ms);
                 ms.Position = 0;
@@ -240,20 +324,27 @@ public class GrokService
         return outStream;
     }
 
-    private void AddWavHeaderToStream(Stream stream, int rawDataLength)
+    private void AddWavHeaderToStream(Stream stream, int rawDataLength, bool isG711 = false)
     {
         var writer = new BinaryWriter(stream, Encoding.UTF8, true);
         writer.Write("RIFF".ToCharArray());
-        writer.Write(36 + rawDataLength);
+        writer.Write((isG711 ? 50 : 36) + rawDataLength);
         writer.Write("WAVE".ToCharArray());
         writer.Write("fmt ".ToCharArray());
-        writer.Write(16);
-        writer.Write((short)1);
+        writer.Write(isG711 ? 18 : 16);
+        writer.Write((short)(isG711 ? 7 : 1));
         writer.Write((short)1);
         writer.Write(16000);
-        writer.Write(16000 * 2);
-        writer.Write((short)2);
-        writer.Write((short)16);
+        writer.Write(isG711 ? 16000 : 32000);
+        writer.Write((short)(isG711 ? 1 : 2));
+        writer.Write((short)(isG711 ? 8 : 16));
+        if (isG711) writer.Write((short)0);
+        if (isG711)
+        {
+            writer.Write("fact".ToCharArray());
+            writer.Write(4);
+            writer.Write(rawDataLength);
+        }
         writer.Write("data".ToCharArray());
         writer.Write(rawDataLength);
     }
@@ -263,20 +354,10 @@ public class GrokService
         string requestJson = "";
         try
         {
-            // Resilience: Fix URL if it includes /stt suffix (common config error)
             var sanitizedBaseUrl = baseUrl.TrimEnd('/');
-            if (sanitizedBaseUrl.EndsWith("/stt"))
-            {
-                sanitizedBaseUrl = sanitizedBaseUrl.Substring(0, sanitizedBaseUrl.Length - 4);
-            }
+            if (sanitizedBaseUrl.EndsWith("/stt")) sanitizedBaseUrl = sanitizedBaseUrl.Substring(0, sanitizedBaseUrl.Length - 4);
 
-            var requestBody = new
-            {
-                model = model,
-                messages = messages,
-                response_format = new { type = "json_object" }
-            };
-
+            var requestBody = new { model = model, messages = messages, response_format = new { type = "json_object" } };
             requestJson = JsonSerializer.Serialize(requestBody, new JsonSerializerOptions { WriteIndented = true });
             var fullUrl = $"{sanitizedBaseUrl.TrimEnd('/')}/chat/completions";
             
@@ -294,19 +375,14 @@ public class GrokService
             var resultJson = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(resultJson);
             var content = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
-            
             if (string.IsNullOrEmpty(content)) return new GrokResponse { Error = "LLM returned empty content.", FullResponse = resultJson };
 
-            // Clean markdown if LLM wrapped JSON in ```json ... ```
             var cleanedContent = content.Trim();
             if (cleanedContent.StartsWith("```"))
             {
                 int firstNewline = cleanedContent.IndexOf('\n');
                 int lastBacktick = cleanedContent.LastIndexOf("```");
-                if (firstNewline != -1 && lastBacktick > firstNewline)
-                {
-                    cleanedContent = cleanedContent.Substring(firstNewline, lastBacktick - firstNewline).Trim();
-                }
+                if (firstNewline != -1 && lastBacktick > firstNewline) cleanedContent = cleanedContent.Substring(firstNewline, lastBacktick - firstNewline).Trim();
             }
 
             try 
@@ -315,13 +391,7 @@ public class GrokService
                 if (grokResult != null) 
                 {
                     grokResult.LlmRequest = requestJson;
-                    
-                    // Beautify the raw API response for debugging
-                    try
-                    {
-                        using var jsonDoc = JsonDocument.Parse(resultJson);
-                        grokResult.FullResponse = JsonSerializer.Serialize(jsonDoc, new JsonSerializerOptions { WriteIndented = true });
-                    }
+                    try { using var jsonDoc = JsonDocument.Parse(resultJson); grokResult.FullResponse = JsonSerializer.Serialize(jsonDoc, new JsonSerializerOptions { WriteIndented = true }); }
                     catch { grokResult.FullResponse = resultJson; }
                 }
                 return grokResult;
@@ -329,19 +399,11 @@ public class GrokService
             catch (Exception ex)
             {
                 var fallbackResponse = resultJson;
-                try
-                {
-                    using var jsonDoc = JsonDocument.Parse(resultJson);
-                    fallbackResponse = JsonSerializer.Serialize(jsonDoc, new JsonSerializerOptions { WriteIndented = true });
-                }
-                catch { }
+                try { using var jsonDoc = JsonDocument.Parse(resultJson); fallbackResponse = JsonSerializer.Serialize(jsonDoc, new JsonSerializerOptions { WriteIndented = true }); } catch { }
                 return new GrokResponse { Error = $"JSON Parse Error: {ex.Message}. Raw content: {content}", LlmRequest = requestJson, FullResponse = fallbackResponse };
             }
         }
-        catch (Exception ex)
-        {
-            return new GrokResponse { Error = $"ProcessActionAsync Exception: {ex.Message}" };
-        }
+        catch (Exception ex) { return new GrokResponse { Error = $"ProcessActionAsync Exception: {ex.Message}" }; }
     }
 }
 

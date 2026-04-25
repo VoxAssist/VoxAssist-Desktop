@@ -5,7 +5,7 @@
         x:Class="VoxAssist.Desktop.Views.SttConfigDialog"
         x:DataType="Views:SttConfigDialog"
         x:Name="Root"
-        Title="Speech to Text Configuration" Width="400" Height="500"
+        Title="Speech to Text Configuration" Width="400" SizeToContent="Height"
         WindowStartupLocation="CenterOwner">
     <ScrollViewer>
         <StackPanel Margin="20" Spacing="10" DataContext="{Binding #Root.MainVm}" x:DataType="vm:MainWindowViewModel">
@@ -44,7 +44,10 @@
                       HorizontalAlignment="Stretch">
             </ComboBox>
 
-            <TextBlock Text="Audio Compression:"/>            <ComboBox ItemsSource="{Binding CompressionTypes}" SelectedItem="{Binding SelectedCompression}" HorizontalAlignment="Stretch">
+            <TextBlock Text="Audio Compression:"/>
+            <ComboBox ItemsSource="{Binding #Root.MainVm.CompressionTypes}" 
+                      SelectedItem="{Binding #Root.MainVm.SelectedCompression}" 
+                      HorizontalAlignment="Stretch">
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
                         <TextBlock Text="{Binding Converter={StaticResource CompressionNameConverter}}"/>

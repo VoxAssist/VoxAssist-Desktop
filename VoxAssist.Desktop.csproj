@@ -16,22 +16,22 @@
 
   <ItemGroup>
     <!-- Linux x64 -->
-    <Content Include="Native/linux-x64/*.so" Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+    <Content Include="Native/linux-x64/*.so" Condition="'$(RuntimeIdentifier)' == 'linux-x64' Or $([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
       <Link>%(FileName)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <!-- Windows x64 -->
-    <Content Include="Native/win-x64/*.dll" Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <Content Include="Native/win-x64/*.dll" Condition="'$(RuntimeIdentifier)' == 'win-x64' Or $([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">
       <Link>%(FileName)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <!-- macOS x64 (Intel) -->
-    <Content Include="Native/osx-x64/*.dylib" Condition="'$(RuntimeIdentifier)' == 'osx-x64'">
+    <Content Include="Native/osx-x64/*.dylib" Condition="'$(RuntimeIdentifier)' == 'osx-x64' Or ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX))) And '$(Process.Architecture)' == 'X64')">
       <Link>%(FileName)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <!-- macOS Arm64 (Apple Silicon) -->
-    <Content Include="Native/osx-arm64/*.dylib" Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">
+    <Content Include="Native/osx-arm64/*.dylib" Condition="'$(RuntimeIdentifier)' == 'osx-arm64' Or ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX))) And '$(Process.Architecture)' == 'Arm64')">
       <Link>%(FileName)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

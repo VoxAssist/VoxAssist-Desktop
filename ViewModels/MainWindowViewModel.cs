@@ -470,6 +470,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly GrokService _grok;
     private readonly GrokTtsService _grokTts;
     private int _lastActionId = -1;
+    private InteractionRecord? _activeRecord;
+    private Stopwatch _sttLatencySw = new();
 
     // Tracking for 'Append To Last Reply'
     private string? _lastSuccessfulPrompt;
@@ -604,6 +606,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                     GrokLanguage = string.IsNullOrEmpty(config.GrokLanguage) ? "en" : config.GrokLanguage;
                     GrokTtsVoice = string.IsNullOrEmpty(config.GrokTtsVoice) ? "eve" : config.GrokTtsVoice;
                     VoxAssistHostUrl = config.VoxAssistHostUrl;
+                    SelectedCompression = config.SelectedCompression;
                 }
             }
         }
@@ -710,6 +713,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         _audioCapture.StartRecording(SelectedMic?.Name ?? "Default");
 
         var record = new InteractionRecord { ActionName = action.Name };
+        _activeRecord = record;
+        _sttLatencySw.Reset();
 
         _ = Task.Run(async () =>
         {
@@ -731,9 +736,13 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private async void OnHotKeyReleased(int actionId) 
     { 
         if (!_audioCapture.IsRecording) return;
+
+        _sttLatencySw.Start(); // Start definition of "TTS Duration" (Time from release to STT text)
+
         var isShortPress = _captureCts != null && !_captureCts.IsCancellationRequested && Status.Contains("Buffering");
         if (isShortPress)
         {
+            _sttLatencySw.Reset();
             _captureCts?.Cancel();
             _audioCapture.StopRecordingAsync().Wait();
             _sound.PlayError();
@@ -763,18 +772,31 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 Dispatcher.UIThread.Post(() => Conversation.Add(record));
                 return;
             }
-            var text = await _grok.StreamSpeechToTextAsync(_pcmChannel!.Reader, provider.ApiKey, GrokLanguage, SelectedCompression, token);
-            if (string.IsNullOrEmpty(text) || text.StartsWith("Error"))
+            var sttResult = await _grok.StreamSpeechToTextAsync(_pcmChannel!.Reader, provider.ApiKey, GrokLanguage, SelectedCompression, token);
+            
+            _sttLatencySw.Stop();
+            record.TtsDurationMs = _sttLatencySw.Elapsed.TotalMilliseconds;
+
+            if (sttResult == null || string.IsNullOrEmpty(sttResult.Text) || sttResult.Text.StartsWith("Error"))
             {
                 _sound.PlayError();
-                record.ErrorMessage = $"STT Error: {text}";
+                record.ErrorMessage = $"STT Error: {sttResult?.Text ?? "Unknown"}";
                 record.UpdateDisplay();
                 Dispatcher.UIThread.Post(() => Conversation.Add(record));
             }
             else
             {
-                record.RawStt = text;
-                await ProcessActionResponse(text, action, record);
+                record.RawStt = sttResult.Text;
+                record.AudioDuration = sttResult.Duration;
+                record.AudioFormat = sttResult.Format;
+                record.RawAudioBytes = sttResult.RawBytes;
+                record.BytesSent = sttResult.BytesSent;
+                record.Compression = SelectedCompression.ToString();
+                
+                var sw = Stopwatch.StartNew();
+                await ProcessActionResponse(sttResult.Text, action, record);
+                sw.Stop();
+                record.PostProcessingDurationMs = sw.Elapsed.TotalMilliseconds;
             }
         }
         catch (Exception ex)
@@ -844,6 +866,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                     {
                         record.LlmRequest = result.LlmRequest;
                         record.LlmResponse = result.FullResponse;
+                        record.LlmModel = model.Model;
                         
                         if (!string.IsNullOrEmpty(result.Error))
                         {
@@ -882,7 +905,10 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                             if (action.UseTts && !string.IsNullOrEmpty(result.Markdown))
                             {
                                 await Task.Delay(100);
+                                var ttsSw = Stopwatch.StartNew();
                                 await SpeakTtsAsync(result.Markdown, result.Keyboard);
+                                ttsSw.Stop();
+                                record.SpeechGenDurationMs = ttsSw.Elapsed.TotalMilliseconds;
                             }
 
                             if (!string.IsNullOrEmpty(result.Keyboard))
@@ -1063,7 +1089,15 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         {
             var settingsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings");
             if (!Directory.Exists(settingsDir)) Directory.CreateDirectory(settingsDir);
-            var config = new UserConfig { IsCcw = IsCcw, IsGrokStt = IsGrokStt, GrokProvider = GrokProvider, GrokLanguage = GrokLanguage, GrokTtsVoice = GrokTtsVoice, VoxAssistHostUrl = VoxAssistHostUrl };
+            var config = new UserConfig { 
+                IsCcw = IsCcw, 
+                IsGrokStt = IsGrokStt, 
+                GrokProvider = GrokProvider, 
+                GrokLanguage = GrokLanguage, 
+                GrokTtsVoice = GrokTtsVoice, 
+                VoxAssistHostUrl = VoxAssistHostUrl,
+                SelectedCompression = SelectedCompression
+            };
             File.WriteAllText(Path.Combine(settingsDir, "settings.json"), System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
             var providers = AiProviders.Select(p => new AiProviderConfig { Name = p.Name, HostUrl = p.HostUrl, ApiKey = p.ApiKey }).ToList();
             File.WriteAllText(Path.Combine(settingsDir, "ai_providers.json"), System.Text.Json.JsonSerializer.Serialize(providers, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));

@@ -25,13 +25,24 @@
 
     <DockPanel>
         <Border DockPanel.Dock="Bottom" Background="#2d2d2d" BorderBrush="#444" BorderThickness="0,1,0,0" Padding="10,5">
-            <Grid ColumnDefinitions="*,*">
+            <Grid ColumnDefinitions="*,Auto,*">
                 <StackPanel Orientation="Horizontal" Spacing="5">
                     <TextBlock Text="Status:" Foreground="Gray"/>
                     <TextBlock Text="{Binding Status}" Foreground="White" FontWeight="Bold"/>
                 </StackPanel>
+
+                <!-- Update Notification (Center) -->
+                <Button Grid.Column="1" 
+                        IsVisible="{Binding AvailableUpdate, Converter={x:Static ObjectConverters.IsNotNull}}"
+                        Command="{Binding PerformUpdate}"
+                        Background="#4CAF50" Foreground="White" Padding="10,2" CornerRadius="4">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <TextBlock Text="🚀 Update Available:" FontSize="11" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding AvailableUpdate.Version}" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
                 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right">
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right">
                     <TextBlock Text="Microphone:" Foreground="Gray"/>
                     <TextBlock Text="{Binding MicStatus}" 
                                Foreground="{Binding MicStatus, Converter={StaticResource MicStatusColorConverter}}" 
@@ -228,6 +239,11 @@
                                   SelectedItem="{Binding SelectedMic}" 
                                   HorizontalAlignment="Stretch"/>
 
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="Max TTS Length (sec):" VerticalAlignment="Center"/>
+                            <NumericUpDown Grid.Column="1" Value="{Binding MaxTtsLength}" Minimum="1" Maximum="3600" Width="150"/>
+                        </Grid>
+
                         <TextBlock Text="Speech to Text" FontSize="18" FontWeight="Bold" Margin="0,10,0,0"/>
                         <Border BorderBrush="#333" BorderThickness="1" Padding="15" CornerRadius="8" Margin="0,5,0,0">
                             <StackPanel Spacing="10">
@@ -257,6 +273,16 @@
                                 </ListBox.ItemTemplate>
                             </ListBox>
                         </DockPanel>
+
+                        <Separator Background="#333" Margin="0,20"/>
+                        
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="App Version" FontWeight="Bold"/>
+                                <TextBlock Text="{Binding VersionString}" Foreground="Gray"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Check for Updates" Command="{Binding ManualCheckForUpdates}"/>
+                        </Grid>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

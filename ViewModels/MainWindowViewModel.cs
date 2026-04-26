@@ -112,6 +112,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly RespeakerService _respeaker;
     private readonly AecService _aec;
     private readonly SoundService _sound;
+    private readonly UpdateService _updater;
     private bool _isDisposed;
 
     private string _status = "Ready";
@@ -450,6 +451,17 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private string _voxAssistHostUrl = "";
     public string VoxAssistHostUrl { get => _voxAssistHostUrl; set => this.RaiseAndSetIfChanged(ref _voxAssistHostUrl, value); }
 
+    private int _maxTtsLength = 600;
+    public int MaxTtsLength 
+    { 
+        get => _maxTtsLength; 
+        set 
+        { 
+            this.RaiseAndSetIfChanged(ref _maxTtsLength, value); 
+            SaveLocalData();
+        } 
+    }
+
     private bool _isGrokStt = true;
     public bool IsGrokStt 
     { 
@@ -466,6 +478,17 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
     private bool _editingVoxStt;
     public bool EditingVoxStt { get => _editingVoxStt; set => this.RaiseAndSetIfChanged(ref _editingVoxStt, value); }
+
+    private UpdateInfo? _availableUpdate;
+    public UpdateInfo? AvailableUpdate { get => _availableUpdate; set => this.RaiseAndSetIfChanged(ref _availableUpdate, value); }
+
+    private double _updateProgress;
+    public double UpdateProgress { get => _updateProgress; set => this.RaiseAndSetIfChanged(ref _updateProgress, value); }
+
+    private string _version = "1.0.0";
+    public string VersionString => $"v{_version}";
+
+    private DateTime _lastUpdateCheck = DateTime.MinValue;
 
     private readonly GrokService _grok;
     private readonly GrokTtsService _grokTts;
@@ -488,6 +511,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         _sound = new SoundService();
         _grok = new GrokService();
         _grokTts = new GrokTtsService();
+        _updater = new UpdateService();
+
+        // Get version from assembly
+        var version = Assembly.GetExecutingAssembly().GetName().Version;
+        if (version != null) _version = $"{version.Major}.{version.Minor}.{version.Build}";
 
         _hotkey.HotKeyPressedDynamic += OnHotKeyPressed;
         _hotkey.HotKeyReleasedDynamic += OnHotKeyReleased;
@@ -501,6 +529,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         SyncHardware();
         LoadMics();
         LoadLocalData();
+        CheckForUpdatesOnStart();
 
         DispatcherTimer.Run(() => {
             IsRespeakerConnected = _respeaker.IsConnected;
@@ -510,606 +539,150 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         }, TimeSpan.FromSeconds(2));
     }
 
+    private string GetSettingsDir()
+    {
+        string path;
+        if (OperatingSystem.IsMacOS()) path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "VoxAssist");
+        else path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VoxAssist");
+        if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private void MigrateSettingsIfNecessary(string targetDir)
+    {
+        try
+        {
+            var localSettingsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings");
+            if (Directory.Exists(localSettingsDir) && Path.GetFullPath(localSettingsDir) != Path.GetFullPath(targetDir))
+            {
+                string[] files = { "settings.json", "ai_models.json", "actions.json", "ai_providers.json" };
+                foreach (var file in files) { var sourceFile = Path.Combine(localSettingsDir, file); var targetFile = Path.Combine(targetDir, file); if (File.Exists(sourceFile) && !File.Exists(targetFile)) File.Copy(sourceFile, targetFile); }
+            }
+        } catch { }
+    }
+
     private void LoadLocalData()
     {
         try
         {
-            var settingsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings");
-            if (!Directory.Exists(settingsDir)) Directory.CreateDirectory(settingsDir);
-
+            var settingsDir = GetSettingsDir();
+            MigrateSettingsIfNecessary(settingsDir);
             var assembly = Assembly.GetExecutingAssembly();
             var assemblyName = assembly.GetName().Name;
-            
             string[] files = { "settings.json", "ai_models.json", "actions.json", "ai_providers.json" };
-            foreach (var file in files)
-            {
-                var filePath = Path.Combine(settingsDir, file);
-                if (!File.Exists(filePath))
-                {
-                    var resourceName = $"{assemblyName}.Settings.{file}";
-                    using var stream = assembly.GetManifestResourceStream(resourceName);
-                    if (stream != null)
-                    {
-                        using var reader = new StreamReader(stream);
-                        File.WriteAllText(filePath, reader.ReadToEnd());
-                    }
-                }
-            }
-
-            // 1. Load Providers
+            foreach (var file in files) { var filePath = Path.Combine(settingsDir, file); if (!File.Exists(filePath)) { var resourceName = $"{assemblyName}.Settings.{file}"; using var stream = assembly.GetManifestResourceStream(resourceName); if (stream != null) { using var reader = new StreamReader(stream); File.WriteAllText(filePath, reader.ReadToEnd()); } } }
             var providersPath = Path.Combine(settingsDir, "ai_providers.json");
-            if (File.Exists(providersPath))
-            {
-                var json = File.ReadAllText(providersPath);
-                var providers = System.Text.Json.JsonSerializer.Deserialize<List<AiProviderConfig>>(json);
-                if (providers != null)
-                {
-                    AiProviders.Clear();
-                    foreach (var p in providers) AiProviders.Add(new AiProviderViewModel { Name = p.Name, HostUrl = p.HostUrl, ApiKey = p.ApiKey });
-                }
-            }
-
-            // 2. Load Models
+            if (File.Exists(providersPath)) { var json = File.ReadAllText(providersPath); var providers = System.Text.Json.JsonSerializer.Deserialize<List<AiProviderConfig>>(json); if (providers != null) { AiProviders.Clear(); foreach (var p in providers) AiProviders.Add(new AiProviderViewModel { Name = p.Name, HostUrl = p.HostUrl, ApiKey = p.ApiKey }); } }
             var modelsPath = Path.Combine(settingsDir, "ai_models.json");
-            if (File.Exists(modelsPath))
-            {
-                var json = File.ReadAllText(modelsPath);
-                var models = System.Text.Json.JsonSerializer.Deserialize<List<LlmConfig>>(json);
-                if (models != null)
-                {
-                    Llms.Clear();
-                    foreach (var l in models)
-                    {
-                        Llms.Add(new LlmViewModel { ProviderName = l.ProviderName, Model = l.Model, IsDefault = l.IsDefault });
-                    }
-                }
-            }
-
-            // 3. Load Actions
+            if (File.Exists(modelsPath)) { var json = File.ReadAllText(modelsPath); var models = System.Text.Json.JsonSerializer.Deserialize<List<LlmConfig>>(json); if (models != null) { Llms.Clear(); foreach (var l in models) Llms.Add(new LlmViewModel { ProviderName = l.ProviderName, Model = l.Model, IsDefault = l.IsDefault }); } }
             var actionsPath = Path.Combine(settingsDir, "actions.json");
-            if (File.Exists(actionsPath))
-            {
-                var json = File.ReadAllText(actionsPath);
-                var actions = System.Text.Json.JsonSerializer.Deserialize<List<ActionConfig>>(json);
-                if (actions != null)
-                {
-                    Actions.Clear();
-                    foreach (var a in actions)
-                    {
-                        var hotkey = string.IsNullOrEmpty(a.Hotkey) ? new List<KeyCode>() : a.Hotkey.Split(',').Select(s => (KeyCode)int.Parse(s)).ToList();
-                        var hotkeyDisplay = hotkey.Count > 0 ? string.Join(" + ", hotkey.Select(k => k.ToString().Replace("Vc", ""))) : "None";
-                        Actions.Add(new ActionViewModel 
-                        { 
-                            Name = a.Name, 
-                            Prompt = a.Prompt, 
-                            AiModel = a.AiModel, 
-                            ShowPopup = a.ShowPopup,
-                            UseTts = a.UseTts,
-                            Hotkey = hotkey, 
-                            HotkeyDisplay = hotkeyDisplay 
-                        });
-                    }
-                }
-            }
-
-            // 4. Load General Settings
+            if (File.Exists(actionsPath)) { var json = File.ReadAllText(actionsPath); var actions = System.Text.Json.JsonSerializer.Deserialize<List<ActionConfig>>(json); if (actions != null) { Actions.Clear(); foreach (var a in actions) { var hotkey = string.IsNullOrEmpty(a.Hotkey) ? new List<KeyCode>() : a.Hotkey.Split(',').Select(s => (KeyCode)int.Parse(s)).ToList(); var hotkeyDisplay = hotkey.Count > 0 ? string.Join(" + ", hotkey.Select(k => k.ToString().Replace("Vc", ""))) : "None"; Actions.Add(new ActionViewModel { Name = a.Name, Prompt = a.Prompt, AiModel = a.AiModel, ShowPopup = a.ShowPopup, UseTts = a.UseTts, Hotkey = hotkey, HotkeyDisplay = hotkeyDisplay }); } } }
             var settingsPath = Path.Combine(settingsDir, "settings.json");
-            if (File.Exists(settingsPath))
-            {
-                var json = File.ReadAllText(settingsPath);
-                var config = System.Text.Json.JsonSerializer.Deserialize<UserConfig>(json);
-                if (config != null)
-                {
-                    IsCcw = config.IsCcw;
-                    IsGrokStt = config.IsGrokStt;
-                    GrokProvider = string.IsNullOrEmpty(config.GrokProvider) ? "xAI" : config.GrokProvider;
-                    GrokLanguage = string.IsNullOrEmpty(config.GrokLanguage) ? "en" : config.GrokLanguage;
-                    GrokTtsVoice = string.IsNullOrEmpty(config.GrokTtsVoice) ? "eve" : config.GrokTtsVoice;
-                    VoxAssistHostUrl = config.VoxAssistHostUrl;
-                    SelectedCompression = config.SelectedCompression;
-                }
-            }
-        }
-        catch { }
-
-        // Fallbacks
+            if (File.Exists(settingsPath)) { var json = File.ReadAllText(settingsPath); var config = System.Text.Json.JsonSerializer.Deserialize<UserConfig>(json); if (config != null) { IsCcw = config.IsCcw; IsGrokStt = config.IsGrokStt; GrokProvider = string.IsNullOrEmpty(config.GrokProvider) ? "xAI" : config.GrokProvider; GrokLanguage = string.IsNullOrEmpty(config.GrokLanguage) ? "en" : config.GrokLanguage; GrokTtsVoice = string.IsNullOrEmpty(config.GrokTtsVoice) ? "eve" : config.GrokTtsVoice; VoxAssistHostUrl = config.VoxAssistHostUrl; MaxTtsLength = config.MaxTtsLength > 0 ? config.MaxTtsLength : 600; SelectedCompression = config.SelectedCompression; _lastUpdateCheck = config.LastUpdateCheck; } }
+        } catch { }
         if (AiProviders.Count == 0) AiProviders.Add(new AiProviderViewModel { Name = "xAI", HostUrl = "https://api.x.ai/v1" });
         if (Llms.Count == 0) Llms.Add(new LlmViewModel { ProviderName = "xAI", Model = "grok-2", IsDefault = true });
-        
-        if (Actions.Count == 0)
-        {
-            Actions.Add(new ActionViewModel 
-            { 
-                Name = "Dictation", 
-                Prompt = "You are a voice assistant, taking dictation. Put the spoken intent into \"Keyboard\", removing filled pauses and self-corrections, and set 'Markdown' to an empty string. Convert squences of numbers into numerals.\nDo not offer unsolicited advice or follow-up comments.\nReply ONLY with valid JSON containing \"Keyboard\" and \"Markdown\" keys.", 
-                AiModel = "" 
-            });
-            Actions.Add(new ActionViewModel 
-            { 
-                Name = "Question", 
-                Prompt = "You are a voice assistant, that helps with simple one-shot queries. Keep your answer brief, and put that into \"Markdown\"\nIf you are asked to spell something, then put that into \"Keyboard\", nouns first letter can be capitalised, otherwise all lower case.\nReply ONLY with valid JSON containing \"Keyboard\" and \"Markdown\" keys.\n", 
-                AiModel = "" 
-            });
-        }
-        
-        UpdateLlmSelector();
-        UpdateHotkeyService();
-        
-        var readyRecord = new InteractionRecord { IsSystemMessage = true, SystemText = "Ready" };
-        readyRecord.UpdateDisplay();
-        Conversation.Add(readyRecord);
+        if (Actions.Count == 0) { Actions.Add(new ActionViewModel { Name = "Dictation", Prompt = "You are a voice assistant, taking dictation...", AiModel = "" }); }
+        UpdateLlmSelector(); UpdateHotkeyService();
+        var readyRecord = new InteractionRecord { IsSystemMessage = true, SystemText = "Ready" }; readyRecord.UpdateDisplay(); Conversation.Add(readyRecord);
     }
 
-    private void UpdateLlmSelector()
-    {
-        LlmSelectorItems.Clear();
-        LlmSelectorItems.Add(new LlmViewModel { Model = "Default", ProviderName = "" });
-        LlmSelectorItems.Add(new LlmViewModel { Model = "Append To Last Reply", ProviderName = "" });
-        LlmSelectorItems.Add(new LlmViewModel { Model = "None", ProviderName = "" });
-        foreach (var llm in Llms) LlmSelectorItems.Add(llm);
-
-        foreach (var action in Actions)
-        {
-            if (!string.IsNullOrEmpty(action.AiModel) && action.AiModel != "None" && action.AiModel != "Append To Last Reply" && !Llms.Any(l => l.Model == action.AiModel)) action.AiModel = "";
-        }
-    }
-
-    private void UpdateHotkeyService()
-    {
-        var mapping = new Dictionary<int, List<KeyCode>>();
-        for (int i = 0; i < Actions.Count; i++)
-        {
-            if (Actions[i].Hotkey.Count > 0) mapping.Add(i, Actions[i].Hotkey);
-        }
-        _hotkey.UpdateHotkeys(mapping);
-    }
-
-    private async void LoadMics()
-    {
-        var mics = await _audioCapture.GetAvailableSourcesAsync();
-        AvailableMics.Clear();
-        foreach (var mic in mics) AvailableMics.Add(new MicDevice { Name = mic.Key, Description = string.IsNullOrEmpty(mic.Value) ? mic.Key : mic.Value });
-        SelectedMic = AvailableMics.FirstOrDefault();
-    }
-
-    private async void SyncHardware()
-    {
-        if (!_respeaker.IsConnected) return;
-        _isFreezeEnabled = _respeaker.GetFreezeState() == 1;
-        _isAgcEnabled = _respeaker.GetAgcState() == 1;
-        _isNsEnabled = _respeaker.GetNsState() == 1;
-        _isAecEnabled = await _aec.IsAecLoadedAsync();
-        MaxBrightness = _respeaker.MaxBrightness;
-        this.RaisePropertyChanged(nameof(IsFreezeEnabled));
-        this.RaisePropertyChanged(nameof(IsAgcEnabled));
-        this.RaisePropertyChanged(nameof(IsNsEnabled));
-        this.RaisePropertyChanged(nameof(IsAecEnabled));
-        _isInitialized = true;
-    }
-
-    private int _preBufferMs = 700;
-    public int PreBufferMs { get => _preBufferMs; set => this.RaiseAndSetIfChanged(ref _preBufferMs, value); }
-
-    private CancellationTokenSource? _captureCts;
-    private System.Threading.Channels.Channel<byte[]>? _pcmChannel;
-
-    private async void OnHotKeyPressed(int actionId) 
-    { 
-        if (actionId < 0 || actionId >= Actions.Count) return;
-        var action = Actions[actionId];
-        _lastActionId = actionId;
-
-        _captureCts?.Cancel();
-        _captureCts = new CancellationTokenSource();
-        var token = _captureCts.Token;
-
-        await Task.Run(() => _sound.PlayChirp(sync: true));
-        await Task.Delay(50);
-
-        Status = $"Action: {action.Name} (Buffering...)";
-        MicStatus = "Listening...";
-
-        _pcmChannel = System.Threading.Channels.Channel.CreateUnbounded<byte[]>();
-        _audioCapture.StartRecording(SelectedMic?.Name ?? "Default");
-
-        var record = new InteractionRecord { ActionName = action.Name };
-        _activeRecord = record;
-        _sttLatencySw.Reset();
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(PreBufferMs, token);
-                await StartGrokStreaming(action, token, record);
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                record.ErrorMessage = ex.Message;
-                record.UpdateDisplay();
-                Dispatcher.UIThread.Post(() => Conversation.Add(record));
-            }
-        });
-    }
-
-    private async void OnHotKeyReleased(int actionId) 
-    { 
-        if (!_audioCapture.IsRecording) return;
-
-        _sttLatencySw.Start(); // Start definition of "TTS Duration" (Time from release to STT text)
-
-        var isShortPress = _captureCts != null && !_captureCts.IsCancellationRequested && Status.Contains("Buffering");
-        if (isShortPress)
-        {
-            _sttLatencySw.Reset();
-            _captureCts?.Cancel();
-            _audioCapture.StopRecordingAsync().Wait();
-            _sound.PlayError();
-            Status = "Cancelled (Too short)";
-            MicStatus = "Ready";
-            await Task.Delay(1000);
-            Status = "Ready";
-            return;
-        }
-        await _audioCapture.StopRecordingAsync();
-        _pcmChannel?.Writer.TryComplete();
-        _sound.PlayDoubleChirp();
-        MicStatus = "Finalizing...";
-    }
-
-    private async Task StartGrokStreaming(ActionViewModel action, CancellationToken token, InteractionRecord record)
-    {
-        Status = $"Action: {action.Name} (Streaming...)";
-        try
-        {
-            var provider = AiProviders.FirstOrDefault(p => p.Name == GrokProvider);
-            if (provider == null || string.IsNullOrEmpty(provider.ApiKey))
-            {
-                _sound.PlayError();
-                record.ErrorMessage = "Grok Provider not configured.";
-                record.UpdateDisplay();
-                Dispatcher.UIThread.Post(() => Conversation.Add(record));
-                return;
-            }
-            var sttResult = await _grok.StreamSpeechToTextAsync(_pcmChannel!.Reader, provider.ApiKey, GrokLanguage, SelectedCompression, token);
-            
-            _sttLatencySw.Stop();
-            record.TtsDurationMs = _sttLatencySw.Elapsed.TotalMilliseconds;
-
-            if (sttResult == null || string.IsNullOrEmpty(sttResult.Text) || sttResult.Text.StartsWith("Error"))
-            {
-                _sound.PlayError();
-                record.ErrorMessage = $"STT Error: {sttResult?.Text ?? "Unknown"}";
-                record.UpdateDisplay();
-                Dispatcher.UIThread.Post(() => Conversation.Add(record));
-            }
-            else
-            {
-                record.RawStt = sttResult.Text;
-                record.AudioDuration = sttResult.Duration;
-                record.AudioFormat = sttResult.Format;
-                record.RawAudioBytes = sttResult.RawBytes;
-                record.BytesSent = sttResult.BytesSent;
-                record.Compression = SelectedCompression.ToString();
-                
-                var sw = Stopwatch.StartNew();
-                await ProcessActionResponse(sttResult.Text, action, record);
-                sw.Stop();
-                record.PostProcessingDurationMs = sw.Elapsed.TotalMilliseconds;
-            }
-        }
-        catch (Exception ex)
-        {
-            if (!token.IsCancellationRequested)
-            {
-                _sound.PlayError();
-                record.ErrorMessage = $"Streaming Error: {ex.Message}";
-                record.UpdateDisplay();
-                Dispatcher.UIThread.Post(() => Conversation.Add(record));
-            }
-        }
-        finally
-        {
-            Dispatcher.UIThread.Post(() => { MicStatus = "Ready"; Status = "Ready"; });
-        }
-    }
-
-    private async Task ProcessActionResponse(string text, ActionViewModel action, InteractionRecord record)
-    {
-        if (action.AiModel != "None")
-        {
-            var isAppendMode = action.AiModel == "Append To Last Reply";
-            
-            var modelName = isAppendMode ? _lastSuccessfulModel : ((string.IsNullOrEmpty(action.AiModel) || action.AiModel == "Default") ? Llms.FirstOrDefault(l => l.IsDefault)?.Model : action.AiModel);
-            var providerName = isAppendMode ? _lastSuccessfulProvider : null; 
-
-            if (isAppendMode && (string.IsNullOrEmpty(_lastSuccessfulPrompt) || string.IsNullOrEmpty(modelName)))
-            {
-                _sound.PlayError();
-                record.ErrorMessage = "No previous LLM action to append to.";
-                record.UpdateDisplay();
-                Dispatcher.UIThread.Post(() => Conversation.Add(record));
-                return;
-            }
-
-            var model = Llms.FirstOrDefault(l => l.Model == modelName) ?? Llms.FirstOrDefault(l => l.IsDefault);
-            
-            if (model != null)
-            {
-                var llmProvider = AiProviders.FirstOrDefault(p => p.Name == (providerName ?? model.ProviderName));
-                if (llmProvider != null && !string.IsNullOrEmpty(llmProvider.ApiKey))
-                {
-                    var systemPrompt = isAppendMode ? _lastSuccessfulPrompt! : action.Prompt;
-                    var messages = new List<ChatMessage> { new ChatMessage { role = "system", content = systemPrompt } };
-
-                    if (isAppendMode)
-                    {
-                        // Traverse history for clean context (skip system messages)
-                        var historyRecords = Conversation
-                            .Where(r => !r.IsSystemMessage && !string.IsNullOrEmpty(r.RawStt) && !string.IsNullOrEmpty(r.LlmMarkdown))
-                            .TakeLast(10)
-                            .ToList();
-
-                        foreach (var prev in historyRecords)
-                        {
-                            messages.Add(new ChatMessage { role = "user", content = prev.RawStt! });
-                            messages.Add(new ChatMessage { role = "assistant", content = prev.LlmMarkdown! });
-                        }
-                    }
-                    
-                    // Add current interaction
-                    messages.Add(new ChatMessage { role = "user", content = text });
-
-                    var result = await _grok.ProcessActionAsync(messages, llmProvider.ApiKey, llmProvider.HostUrl, model.Model);
-                    if (result != null)
-                    {
-                        record.LlmRequest = result.LlmRequest;
-                        record.LlmResponse = result.FullResponse;
-                        record.LlmModel = model.Model;
-                        
-                        if (!string.IsNullOrEmpty(result.Error))
-                        {
-                            _sound.PlayError();
-                            record.ErrorMessage = result.Error;
-                        }
-                        else
-                        {
-                            if (!isAppendMode)
-                            {
-                                _lastSuccessfulPrompt = action.Prompt;
-                                _lastSuccessfulModel = model.Model;
-                                _lastSuccessfulProvider = llmProvider.Name;
-                            }
-
-                            record.LlmMarkdown = result.Markdown;
-                            record.TypedText = result.Keyboard;
-
-                            // Update display and add to conversation BEFORE long-running TTS/Typing
-                            record.UpdateDisplay();
-                            Dispatcher.UIThread.Post(() => Conversation.Add(record));
-
-                            if (action.ShowPopup && !string.IsNullOrEmpty(result.Markdown))
-                            {
-                                SelectedTabIndex = 0;
-                                Dispatcher.UIThread.Post(() => {
-                                    var owner = GetMainWindow();
-                                    if (owner != null)
-                                    {
-                                        owner.Activate();
-                                        if (owner.WindowState == WindowState.Minimized) owner.WindowState = WindowState.Normal;
-                                    }
-                                });
-                            }
-
-                            if (action.UseTts && !string.IsNullOrEmpty(result.Markdown))
-                            {
-                                await Task.Delay(100);
-                                var ttsSw = Stopwatch.StartNew();
-                                await SpeakTtsAsync(result.Markdown, result.Keyboard);
-                                ttsSw.Stop();
-                                record.SpeechGenDurationMs = ttsSw.Elapsed.TotalMilliseconds;
-                            }
-
-                            if (!string.IsNullOrEmpty(result.Keyboard))
-                            {
-                                await _keyboard.TypeTextAsync(result.Keyboard);
-                            }
-
-                            return; // Already added and updated
-                        }
-                    }
-                    else record.ErrorMessage = "LLM returned no result.";
-                }
-                else record.ErrorMessage = "LLM Provider not configured.";
-            }
-            else record.ErrorMessage = "No LLM Model found.";
-        }
-        else
-        {
-            record.TypedText = text;
-            await _keyboard.TypeTextAsync(text);
-        }
-
-        record.UpdateDisplay();
-        Dispatcher.UIThread.Post(() => Conversation.Add(record));
-    }
-
-    public async Task SetActionHotkey()
-    {
-        if (SelectedAction == null) return;
-        var window = new HotkeyWindow(_hotkey, SelectedAction.Name);
-        var mainWindow = GetMainWindow();
-        if (mainWindow == null) return;
-        var result = await window.ShowDialog<List<KeyCode>>(mainWindow);
-        if (result != null && result.Count > 0)
-        {
-            SelectedAction.Hotkey = result;
-            SelectedAction.HotkeyDisplay = string.Join(" + ", result.Select(k => k.ToString().Replace("Vc", "")));
-            UpdateHotkeyService();
+    private void CheckForUpdatesOnStart() => _ = Task.Run(async () => {
+        await Task.Delay(2000);
+        // Daily check logic
+        if (DateTime.Now - _lastUpdateCheck > TimeSpan.FromDays(1)) {
+            AvailableUpdate = await _updater.CheckForUpdatesAsync(_version);
+            _lastUpdateCheck = DateTime.Now;
             SaveLocalData();
         }
-    }
+    });
 
-    public void AddAction() 
+    public async Task ManualCheckForUpdates() { Status = "Checking for updates..."; AvailableUpdate = await _updater.CheckForUpdatesAsync(_version); _lastUpdateCheck = DateTime.Now; SaveLocalData(); Status = AvailableUpdate == null ? "App is up to date." : $"Update {AvailableUpdate.Version} available!"; if (AvailableUpdate == null) await Task.Delay(3000); Status = "Ready"; }
+    public async Task PerformUpdate() { if (AvailableUpdate == null) return; try { Status = $"Downloading update {AvailableUpdate.Version}..."; await _updater.ApplyUpdateAsync(AvailableUpdate, (p) => UpdateProgress = p); } catch (Exception ex) { Status = $"Update failed: {ex.Message}"; await Task.Delay(5000); Status = "Ready"; } }
+
+    private void UpdateLlmSelector() { LlmSelectorItems.Clear(); LlmSelectorItems.Add(new LlmViewModel { Model = "Default", ProviderName = "" }); LlmSelectorItems.Add(new LlmViewModel { Model = "Append To Last Reply", ProviderName = "" }); LlmSelectorItems.Add(new LlmViewModel { Model = "None", ProviderName = "" }); foreach (var llm in Llms) LlmSelectorItems.Add(llm); foreach (var action in Actions) { if (!string.IsNullOrEmpty(action.AiModel) && action.AiModel != "None" && action.AiModel != "Append To Last Reply" && !Llms.Any(l => l.Model == action.AiModel)) action.AiModel = ""; } }
+    private void UpdateHotkeyService() { var mapping = new Dictionary<int, List<KeyCode>>(); for (int i = 0; i < Actions.Count; i++) { if (Actions[i].Hotkey.Count > 0) mapping.Add(i, Actions[i].Hotkey); } _hotkey.UpdateHotkeys(mapping); }
+    private async void LoadMics() { var mics = await _audioCapture.GetAvailableSourcesAsync(); AvailableMics.Clear(); foreach (var mic in mics) AvailableMics.Add(new MicDevice { Name = mic.Key, Description = string.IsNullOrEmpty(mic.Value) ? mic.Key : mic.Value }); SelectedMic = AvailableMics.FirstOrDefault(); }
+    private async void SyncHardware() { if (!_respeaker.IsConnected) return; _isFreezeEnabled = _respeaker.GetFreezeState() == 1; _isAgcEnabled = _respeaker.GetAgcState() == 1; _isNsEnabled = _respeaker.GetNsState() == 1; _isAecEnabled = await _aec.IsAecLoadedAsync(); MaxBrightness = _respeaker.MaxBrightness; this.RaisePropertyChanged(nameof(IsFreezeEnabled)); this.RaisePropertyChanged(nameof(IsAgcEnabled)); this.RaisePropertyChanged(nameof(IsNsEnabled)); this.RaisePropertyChanged(nameof(IsAecEnabled)); _isInitialized = true; }
+    private int _preBufferMs = 700; public int PreBufferMs { get => _preBufferMs; set => this.RaiseAndSetIfChanged(ref _preBufferMs, value); }
+    private CancellationTokenSource? _captureCts; private System.Threading.Channels.Channel<byte[]>? _pcmChannel;
+    private async void OnHotKeyPressed(int actionId) 
     { 
-        if (CanSaveSelectedAction)
-        {
-            _ = HandleAddActionAsync();
-        }
-        else
-        {
-            PerformAddAction();
-        }
+        if (actionId < 0 || actionId >= Actions.Count) return; 
+        var action = Actions[actionId]; 
+        _lastActionId = actionId; 
+        _captureCts?.Cancel(); 
+        _captureCts = new CancellationTokenSource(); 
+        var token = _captureCts.Token; 
+        await Task.Run(() => _sound.PlayChirp(sync: true)); 
+        await Task.Delay(50); 
+        Status = $"Action: {action.Name} (Buffering...)"; 
+        MicStatus = "Listening..."; 
+        _pcmChannel = System.Threading.Channels.Channel.CreateUnbounded<byte[]>(); 
+        _audioCapture.StartRecording(SelectedMic?.Name ?? "Default"); 
+
+        // Auto-stop if limit reached
+        _ = Task.Run(async () => {
+            try {
+                await Task.Delay(MaxTtsLength * 1000, token);
+                if (_audioCapture.IsRecording) {
+                    await Dispatcher.UIThread.InvokeAsync(async () => {
+                        if (_audioCapture.IsRecording) {
+                            await _audioCapture.StopRecordingAsync();
+                            _pcmChannel?.Writer.TryComplete();
+                            _sound.PlayDoubleChirp();
+                            MicStatus = "Finalizing (Limit reached)...";
+                        }
+                    });
+                }
+            } catch (OperationCanceledException) {}
+        });
+
+        var record = new InteractionRecord { ActionName = action.Name }; 
+        _activeRecord = record; 
+        _sttLatencySw.Reset(); 
+        _ = Task.Run(async () => { 
+            try { 
+                await Task.Delay(PreBufferMs, token); 
+                await StartGrokStreaming(action, token, record); 
+            } catch (OperationCanceledException) { } 
+            catch (Exception ex) { 
+                record.ErrorMessage = ex.Message; 
+                record.UpdateDisplay(); 
+                Dispatcher.UIThread.Post(() => Conversation.Add(record)); 
+            } 
+        }); 
     }
-
-    private async Task HandleAddActionAsync()
-    {
-        var result = await CheckUnsavedChangesAsync();
-        if (result == "Cancel") return;
-
-        if (result == "Save") SaveSelectedAction();
-        else if (result == "Discard") CancelSelectedAction();
-
-        PerformAddAction();
-    }
-
-    private void PerformAddAction()
-    {
-        var newAction = new ActionViewModel { Name = "New Action", Prompt = "You are a helpfull voice assistant", AiModel = "", ShowPopup = false, UseTts = false }; 
-        Actions.Add(newAction);
-        UpdateSelectedAction(newAction);
-        SaveLocalData();
-    }
-    
-    public void CancelSelectedAction()
-    {
-        if (SelectedAction == null || _originalAction == null) return;
-        
-        SelectedAction.Name = _originalAction.Name;
-        SelectedAction.Prompt = _originalAction.Prompt;
-        SelectedAction.AiModel = _originalAction.AiModel;
-        SelectedAction.ShowPopup = _originalAction.ShowPopup;
-        SelectedAction.UseTts = _originalAction.UseTts;
-        SelectedAction.Hotkey = new List<KeyCode>(_originalAction.Hotkey);
-        SelectedAction.HotkeyDisplay = _originalAction.HotkeyDisplay;
-        
-        this.RaisePropertyChanged(nameof(SelectedActionLlm));
-        this.RaisePropertyChanged(nameof(IsPromptEnabled));
-        this.RaisePropertyChanged(nameof(CanSaveSelectedAction));
-    }
-
-    public void SaveSelectedAction() 
-    { 
-        SaveLocalData(); 
-        _originalAction = SelectedAction?.Clone();
-        this.RaisePropertyChanged(nameof(CanSaveSelectedAction));
-    }
-
+    private async void OnHotKeyReleased(int actionId) { if (!_audioCapture.IsRecording) return; _sttLatencySw.Start(); var isShortPress = _captureCts != null && !_captureCts.IsCancellationRequested && Status.Contains("Buffering"); if (isShortPress) { _sttLatencySw.Reset(); _captureCts?.Cancel(); _audioCapture.StopRecordingAsync().Wait(); _sound.PlayError(); Status = "Cancelled (Too short)"; MicStatus = "Ready"; await Task.Delay(1000); Status = "Ready"; return; } await _audioCapture.StopRecordingAsync(); _pcmChannel?.Writer.TryComplete(); _sound.PlayDoubleChirp(); MicStatus = "Finalizing..."; }
+    private async Task StartGrokStreaming(ActionViewModel action, CancellationToken token, InteractionRecord record) { Status = $"Action: {action.Name} (Streaming...)"; try { var provider = AiProviders.FirstOrDefault(p => p.Name == GrokProvider); if (provider == null || string.IsNullOrEmpty(provider.ApiKey)) { _sound.PlayError(); record.ErrorMessage = "Grok Provider not configured."; record.UpdateDisplay(); Dispatcher.UIThread.Post(() => Conversation.Add(record)); return; } var sttResult = await _grok.StreamSpeechToTextAsync(_pcmChannel!.Reader, provider.ApiKey, GrokLanguage, SelectedCompression, token); _sttLatencySw.Stop(); record.TtsDurationMs = _sttLatencySw.Elapsed.TotalMilliseconds; if (sttResult == null || string.IsNullOrEmpty(sttResult.Text) || sttResult.Text.StartsWith("Error")) { _sound.PlayError(); record.ErrorMessage = $"STT Error: {sttResult?.Text ?? "Unknown"}"; record.UpdateDisplay(); Dispatcher.UIThread.Post(() => Conversation.Add(record)); } else { record.RawStt = sttResult.Text; record.AudioDuration = sttResult.Duration; record.AudioFormat = sttResult.Format; record.RawAudioBytes = sttResult.RawBytes; record.BytesSent = sttResult.BytesSent; record.Compression = SelectedCompression.ToString(); var sw = Stopwatch.StartNew(); await ProcessActionResponse(sttResult.Text, action, record); sw.Stop(); record.PostProcessingDurationMs = sw.Elapsed.TotalMilliseconds; } } catch (Exception ex) { if (!token.IsCancellationRequested) { _sound.PlayError(); record.ErrorMessage = $"Streaming Error: {ex.Message}"; record.UpdateDisplay(); Dispatcher.UIThread.Post(() => Conversation.Add(record)); } } finally { Dispatcher.UIThread.Post(() => { MicStatus = "Ready"; Status = "Ready"; }); } }
+    private async Task ProcessActionResponse(string text, ActionViewModel action, InteractionRecord record) { if (action.AiModel != "None") { var isAppendMode = action.AiModel == "Append To Last Reply"; var modelName = isAppendMode ? _lastSuccessfulModel : ((string.IsNullOrEmpty(action.AiModel) || action.AiModel == "Default") ? Llms.FirstOrDefault(l => l.IsDefault)?.Model : action.AiModel); var providerName = isAppendMode ? _lastSuccessfulProvider : null; if (isAppendMode && (string.IsNullOrEmpty(_lastSuccessfulPrompt) || string.IsNullOrEmpty(modelName))) { _sound.PlayError(); record.ErrorMessage = "No previous LLM action to append to."; record.UpdateDisplay(); Dispatcher.UIThread.Post(() => Conversation.Add(record)); return; } var model = Llms.FirstOrDefault(l => l.Model == modelName) ?? Llms.FirstOrDefault(l => l.IsDefault); if (model != null) { var llmProvider = AiProviders.FirstOrDefault(p => p.Name == (providerName ?? model.ProviderName)); if (llmProvider != null && !string.IsNullOrEmpty(llmProvider.ApiKey)) { var systemPrompt = isAppendMode ? _lastSuccessfulPrompt! : action.Prompt; var messages = new List<ChatMessage> { new ChatMessage { role = "system", content = systemPrompt } }; if (isAppendMode) { var historyRecords = Conversation.Where(r => !r.IsSystemMessage && !string.IsNullOrEmpty(r.RawStt) && !string.IsNullOrEmpty(r.LlmMarkdown)).TakeLast(10).ToList(); foreach (var prev in historyRecords) { messages.Add(new ChatMessage { role = "user", content = prev.RawStt! }); messages.Add(new ChatMessage { role = "assistant", content = prev.LlmMarkdown! }); } } messages.Add(new ChatMessage { role = "user", content = text }); var result = await _grok.ProcessActionAsync(messages, llmProvider.ApiKey, llmProvider.HostUrl, model.Model); if (result != null) { record.LlmRequest = result.LlmRequest; record.LlmResponse = result.FullResponse; record.LlmModel = model.Model; if (!string.IsNullOrEmpty(result.Error)) { _sound.PlayError(); record.ErrorMessage = result.Error; } else { if (!isAppendMode) { _lastSuccessfulPrompt = action.Prompt; _lastSuccessfulModel = model.Model; _lastSuccessfulProvider = llmProvider.Name; } record.LlmMarkdown = result.Markdown; record.TypedText = result.Keyboard; record.UpdateDisplay(); Dispatcher.UIThread.Post(() => Conversation.Add(record)); if (action.ShowPopup && !string.IsNullOrEmpty(result.Markdown)) { SelectedTabIndex = 0; Dispatcher.UIThread.Post(() => { var owner = GetMainWindow(); if (owner != null) { owner.Activate(); if (owner.WindowState == WindowState.Minimized) owner.WindowState = WindowState.Normal; } }); } if (action.UseTts && !string.IsNullOrEmpty(result.Markdown)) { await Task.Delay(100); var ttsSw = Stopwatch.StartNew(); await SpeakTtsAsync(result.Markdown, result.Keyboard); ttsSw.Stop(); record.SpeechGenDurationMs = ttsSw.Elapsed.TotalMilliseconds; } if (!string.IsNullOrEmpty(result.Keyboard)) await _keyboard.TypeTextAsync(result.Keyboard); return; } } else record.ErrorMessage = "LLM returned no result."; } else record.ErrorMessage = "LLM Provider not configured."; } else record.ErrorMessage = "No LLM Model found."; } else { record.TypedText = text; await _keyboard.TypeTextAsync(text); } record.UpdateDisplay(); Dispatcher.UIThread.Post(() => Conversation.Add(record)); }
+    public async Task SetActionHotkey() { if (SelectedAction == null) return; var window = new HotkeyWindow(_hotkey, SelectedAction.Name); var mainWindow = GetMainWindow(); if (mainWindow == null) return; var result = await window.ShowDialog<List<KeyCode>>(mainWindow); if (result != null && result.Count > 0) { SelectedAction.Hotkey = result; SelectedAction.HotkeyDisplay = string.Join(" + ", result.Select(k => k.ToString().Replace("Vc", ""))); UpdateHotkeyService(); SaveLocalData(); } }
+    public void AddAction() { if (CanSaveSelectedAction) _ = HandleAddActionAsync(); else PerformAddAction(); }
+    private async Task HandleAddActionAsync() { var result = await CheckUnsavedChangesAsync(); if (result == "Cancel") return; if (result == "Save") SaveSelectedAction(); else if (result == "Discard") CancelSelectedAction(); PerformAddAction(); }
+    private void PerformAddAction() { var newAction = new ActionViewModel { Name = "New Action", Prompt = "You are a helpfull voice assistant", AiModel = "", ShowPopup = false, UseTts = false }; Actions.Add(newAction); UpdateSelectedAction(newAction); SaveLocalData(); }
+    public void CancelSelectedAction() { if (SelectedAction == null || _originalAction == null) return; SelectedAction.Name = _originalAction.Name; SelectedAction.Prompt = _originalAction.Prompt; SelectedAction.AiModel = _originalAction.AiModel; SelectedAction.ShowPopup = _originalAction.ShowPopup; SelectedAction.UseTts = _originalAction.UseTts; SelectedAction.Hotkey = new List<KeyCode>(_originalAction.Hotkey); SelectedAction.HotkeyDisplay = _originalAction.HotkeyDisplay; this.RaisePropertyChanged(nameof(SelectedActionLlm)); this.RaisePropertyChanged(nameof(IsPromptEnabled)); this.RaisePropertyChanged(nameof(CanSaveSelectedAction)); }
+    public void SaveSelectedAction() { SaveLocalData(); _originalAction = SelectedAction?.Clone(); this.RaisePropertyChanged(nameof(CanSaveSelectedAction)); }
     public void DeleteSelectedAction() { if (SelectedAction != null) { Actions.Remove(SelectedAction); SaveLocalData(); } }
-
-    public async Task AddLlm()
-    {
-        var newLlm = new LlmViewModel { ProviderName = AiProviders.FirstOrDefault()?.Name ?? "", Model = "" };
-        await EditLlm(newLlm, true);
-    }
-
-    public async Task AddProvider(Window? owner = null)
-    {
-        var newProvider = new AiProviderViewModel { Name = "New Provider", HostUrl = "" };
-        var dialog = new ProviderEditDialog { DataContext = newProvider };
-        var targetOwner = owner ?? GetMainWindow();
-        if (targetOwner == null) return;
-        if (await dialog.ShowDialog<bool>(targetOwner)) { AiProviders.Add(newProvider); SaveLocalData(); }
-    }
-
-    public async Task EditProvider(string providerName, Window? owner = null)
-    {
-        var provider = AiProviders.FirstOrDefault(p => p.Name == providerName);
-        if (provider == null) return;
-        var dialog = new ProviderEditDialog { DataContext = provider };
-        var targetOwner = owner ?? GetMainWindow();
-        if (targetOwner == null) return;
-        if (await dialog.ShowDialog<bool>(targetOwner)) SaveLocalData();
-    }
-
-    public async Task EditGrokStt()
-    {
-        var oldIsGrok = IsGrokStt; var oldProvider = GrokProvider; var oldLang = GrokLanguage; var oldComp = SelectedCompression;
-        EditingGrokStt = true; EditingVoxStt = false;
-        var dialog = new SttConfigDialog(this); dialog.DataContext = dialog;
-        var mainWindow = GetMainWindow();
-        if (mainWindow != null) 
-        {
-            if (await dialog.ShowDialog<bool>(mainWindow)) SaveLocalData();
-            else { IsGrokStt = oldIsGrok; GrokProvider = oldProvider; GrokLanguage = oldLang; SelectedCompression = oldComp; }
-        }
-    }
-
-    public async Task EditVoxStt()
-    {
-        var oldIsGrok = IsGrokStt; var oldUrl = VoxAssistHostUrl;
-        EditingGrokStt = true; EditingVoxStt = false;
-        var dialog = new SttConfigDialog(this); dialog.DataContext = dialog;
-        var mainWindow = GetMainWindow();
-        if (mainWindow != null) 
-        {
-            if (await dialog.ShowDialog<bool>(mainWindow)) SaveLocalData();
-            else { IsGrokStt = oldIsGrok; VoxAssistHostUrl = oldUrl; }
-        }
-    }
-
-    private async Task EditLlm(LlmViewModel llm, bool isNew = false)
-    {
-        var dialog = new LlmEditDialog(this) { DataContext = llm, IsNew = isNew };
-        var mainWindow = GetMainWindow();
-        if (mainWindow == null) return;
-        if (await dialog.ShowDialog<bool>(mainWindow))
-        {
-            if (dialog.IsDeleted) { if (!isNew) Llms.Remove(llm); }
-            else { if (llm.IsDefault) foreach (var l in Llms) if (l != llm) l.IsDefault = false; if (isNew) Llms.Add(llm); foreach (var l in Llms) l.RaisePropertyChanged(nameof(l.DisplayName)); }
-            UpdateLlmSelector(); SaveLocalData();
-        }
-    }
-
+    public async Task AddLlm() { var newLlm = new LlmViewModel { ProviderName = AiProviders.FirstOrDefault()?.Name ?? "", Model = "" }; await EditLlm(newLlm, true); }
+    public async Task AddProvider(Window? owner = null) { var newProvider = new AiProviderViewModel { Name = "New Provider", HostUrl = "" }; var dialog = new ProviderEditDialog { DataContext = newProvider }; var targetOwner = owner ?? GetMainWindow(); if (targetOwner == null) return; if (await dialog.ShowDialog<bool>(targetOwner)) { AiProviders.Add(newProvider); SaveLocalData(); } }
+    public async Task EditProvider(string providerName, Window? owner = null) { var provider = AiProviders.FirstOrDefault(p => p.Name == providerName); if (provider == null) return; var dialog = new ProviderEditDialog { DataContext = provider }; var targetOwner = owner ?? GetMainWindow(); if (targetOwner == null) return; if (await dialog.ShowDialog<bool>(targetOwner)) SaveLocalData(); }
+    public async Task EditGrokStt() { var oldIsGrok = IsGrokStt; var oldProvider = GrokProvider; var oldLang = GrokLanguage; var oldComp = SelectedCompression; EditingGrokStt = true; EditingVoxStt = false; var dialog = new SttConfigDialog(this); dialog.DataContext = dialog; var mainWindow = GetMainWindow(); if (mainWindow != null) { if (await dialog.ShowDialog<bool>(mainWindow)) SaveLocalData(); else { IsGrokStt = oldIsGrok; GrokProvider = oldProvider; GrokLanguage = oldLang; SelectedCompression = oldComp; } } }
+    public async Task EditVoxStt() { var oldIsGrok = IsGrokStt; var oldUrl = VoxAssistHostUrl; EditingGrokStt = true; EditingVoxStt = false; var dialog = new SttConfigDialog(this); dialog.DataContext = dialog; var mainWindow = GetMainWindow(); if (mainWindow != null) { if (await dialog.ShowDialog<bool>(mainWindow)) SaveLocalData(); else { IsGrokStt = oldIsGrok; VoxAssistHostUrl = oldUrl; } } }
+    private async Task EditLlm(LlmViewModel llm, bool isNew = false) { var dialog = new LlmEditDialog(this) { DataContext = llm, IsNew = isNew }; var mainWindow = GetMainWindow(); if (mainWindow == null) return; if (await dialog.ShowDialog<bool>(mainWindow)) { if (dialog.IsDeleted) { if (!isNew) Llms.Remove(llm); } else { if (llm.IsDefault) foreach (var l in Llms) if (l != llm) l.IsDefault = false; if (isNew) Llms.Add(llm); foreach (var l in Llms) l.RaisePropertyChanged(nameof(l.DisplayName)); } UpdateLlmSelector(); SaveLocalData(); } }
     private Window? GetMainWindow() => (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
-
-    private void UpdateLedMode()
-    {
-        if (!_isInitialized) return;
-        int mode = LedPattern switch { "Mono" => 1, "Listen" => 3, "Wait" => 4, "Think" => 5, "Speak" => 6, "Spin" => 7, "Off" => 8, _ => 0 };
-        if (LedPattern == "Off") _respeaker.SetLedMono(0,0,0);
-        else if (LedPattern == "Mono") _respeaker.SetLedMono(255,0,0);
-        else _respeaker.SetLedMode(mode);
-    }
+    private void UpdateLedMode() { if (!_isInitialized) return; int mode = LedPattern switch { "Mono" => 1, "Listen" => 3, "Wait" => 4, "Think" => 5, "Speak" => 6, "Spin" => 7, "Off" => 8, _ => 0 }; if (LedPattern == "Off") _respeaker.SetLedMono(0,0,0); else if (LedPattern == "Mono") _respeaker.SetLedMono(255,0,0); else _respeaker.SetLedMode(mode); }
 
     private void SaveLocalData()
     {
         try
         {
-            var settingsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings");
+            var settingsDir = GetSettingsDir();
             if (!Directory.Exists(settingsDir)) Directory.CreateDirectory(settingsDir);
-            var config = new UserConfig { 
-                IsCcw = IsCcw, 
-                IsGrokStt = IsGrokStt, 
-                GrokProvider = GrokProvider, 
-                GrokLanguage = GrokLanguage, 
-                GrokTtsVoice = GrokTtsVoice, 
-                VoxAssistHostUrl = VoxAssistHostUrl,
-                SelectedCompression = SelectedCompression
-            };
+            var config = new UserConfig { IsCcw = IsCcw, IsGrokStt = IsGrokStt, GrokProvider = GrokProvider, GrokLanguage = GrokLanguage, GrokTtsVoice = GrokTtsVoice, VoxAssistHostUrl = VoxAssistHostUrl, MaxTtsLength = MaxTtsLength, SelectedCompression = SelectedCompression, LastUpdateCheck = _lastUpdateCheck };
             File.WriteAllText(Path.Combine(settingsDir, "settings.json"), System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
             var providers = AiProviders.Select(p => new AiProviderConfig { Name = p.Name, HostUrl = p.HostUrl, ApiKey = p.ApiKey }).ToList();
             File.WriteAllText(Path.Combine(settingsDir, "ai_providers.json"), System.Text.Json.JsonSerializer.Serialize(providers, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-            var actions = Actions.Select(a => new ActionConfig 
-            { 
-                Name = a.Name, 
-                Prompt = a.Prompt, 
-                AiModel = a.AiModel,
-                ShowPopup = a.ShowPopup,
-                UseTts = a.UseTts,
-                Hotkey = string.Join(",", a.Hotkey.Select(k => (int)k))
-            }).ToList();
+            var actions = Actions.Select(a => new ActionConfig { Name = a.Name, Prompt = a.Prompt, AiModel = a.AiModel, ShowPopup = a.ShowPopup, UseTts = a.UseTts, Hotkey = string.Join(",", a.Hotkey.Select(k => (int)k)) }).ToList();
             File.WriteAllText(Path.Combine(settingsDir, "actions.json"), System.Text.Json.JsonSerializer.Serialize(actions, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
             var models = Llms.Select(l => new LlmConfig { ProviderName = l.ProviderName, Model = l.Model, IsDefault = l.IsDefault }).ToList();
             File.WriteAllText(Path.Combine(settingsDir, "ai_models.json"), System.Text.Json.JsonSerializer.Serialize(models, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
@@ -1119,95 +692,15 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private async Task SpeakTtsAsync(string markdown, string? keyboard)
     {
         var textToSpeak = string.IsNullOrWhiteSpace(markdown) ? keyboard : markdown;
-        if (string.IsNullOrWhiteSpace(textToSpeak)) 
-        {
-            Console.WriteLine("TTS: Nothing to speak.");
-            return;
-        }
-
-        try
-        {
-            var provider = AiProviders.FirstOrDefault(p => p.Name == GrokProvider);
-            if (provider != null && !string.IsNullOrEmpty(provider.ApiKey))
-            {
-                Console.WriteLine($"TTS: Attempting Grok TTS with voice {GrokTtsVoice} and language {GrokLanguage}...");
-                var audioData = await _grokTts.GenerateSpeechAsync(textToSpeak, provider.ApiKey, GrokTtsVoice, GrokLanguage);
-                if (audioData != null)
-                {
-                    Console.WriteLine($"TTS: Grok TTS successful, playing {audioData.Length} bytes.");
-                    await _sound.PlayAudioAsync(audioData);
-                    return;
-                }
-                else
-                {
-                    Console.WriteLine("TTS: Grok TTS returned null audio data.");
-                }
-            }
-            else
-            {
-                Console.WriteLine($"TTS: Grok Provider '{GrokProvider}' not found or has no API key.");
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Grok TTS Error: {ex.Message}");
-        }
-
-        // Fallback to system TTS
-        Console.WriteLine("TTS: Falling back to system TTS...");
+        if (string.IsNullOrWhiteSpace(textToSpeak)) return;
+        try { var provider = AiProviders.FirstOrDefault(p => p.Name == GrokProvider); if (provider != null && !string.IsNullOrEmpty(provider.ApiKey)) { var audioData = await _grokTts.GenerateSpeechAsync(textToSpeak, provider.ApiKey, GrokTtsVoice, GrokLanguage); if (audioData != null) { await _sound.PlayAudioAsync(audioData); return; } } } catch { }
         await SpeakAsync(textToSpeak!);
     }
 
     private async Task SpeakAsync(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
-        
-        try
-        {
-            var sanitized = text.Replace("\"", "\\\"").Replace("'", "");
-            
-            if (OperatingSystem.IsLinux())
-            {
-                var spdSayPath = "/usr/bin/spd-say";
-                if (!File.Exists(spdSayPath)) spdSayPath = "spd-say";
-
-                var process = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = spdSayPath,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    }
-                };
-                process.StartInfo.ArgumentList.Add(text);
-
-                process.Start();
-                await process.WaitForExitAsync();
-            }
-            else if (OperatingSystem.IsWindows())
-            {
-                var process = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "powershell",
-                        Arguments = $"-Command \"Add-Type -AssemblyName System.Speech; $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer; $speak.Speak('{sanitized}')\"",
-                        RedirectStandardOutput = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    }
-                };
-                process.Start();
-                await process.WaitForExitAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"TTS Error: {ex.Message}");
-        }
+        try { var sanitized = text.Replace("\"", "\\\"").Replace("'", ""); if (OperatingSystem.IsLinux()) { var spdSayPath = "/usr/bin/spd-say"; if (!File.Exists(spdSayPath)) spdSayPath = "spd-say"; var process = new Process { StartInfo = new ProcessStartInfo { FileName = spdSayPath, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true } }; process.StartInfo.ArgumentList.Add(text); process.Start(); await process.WaitForExitAsync(); } else if (OperatingSystem.IsWindows()) { var process = new Process { StartInfo = new ProcessStartInfo { FileName = "powershell", Arguments = $"-Command \"Add-Type -AssemblyName System.Speech; $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer; $speak.Speak('{sanitized}')\"", RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true } }; process.Start(); await process.WaitForExitAsync(); } } catch { }
     }
 
     public void ReconnectRespeaker() => _respeaker.TryConnect();

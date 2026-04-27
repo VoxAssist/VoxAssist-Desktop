@@ -530,6 +530,13 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         LoadMics();
         LoadLocalData();
         CheckForUpdatesOnStart();
+        
+        // Use a slight delay to ensure the window is mapped to a monitor
+        // before we check permissions and potentially show a dialog.
+        _ = Task.Run(async () => {
+            await Task.Delay(1000);
+            await Dispatcher.UIThread.InvokeAsync(CheckLinuxPermissions);
+        });
 
         DispatcherTimer.Run(() => {
             IsRespeakerConnected = _respeaker.IsConnected;
@@ -537,6 +544,41 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             else _respeaker.TryConnect();
             return true;
         }, TimeSpan.FromSeconds(2));
+    }
+
+    private void CheckLinuxPermissions()
+    {
+        if (PermissionService.IsLinuxAndMissingCapabilities())
+        {
+            Dispatcher.UIThread.Post(async () => {
+                var mainWindow = GetMainWindow();
+                if (mainWindow != null)
+                {
+                    var dialog = new PermissionDialog();
+                    var result = await dialog.ShowDialog<bool>(mainWindow);
+                    if (result)
+                    {
+                        await RequestElevation();
+                    }
+                }
+                else
+                {
+                    Status = "Linux: Missing /dev/uinput permissions. Click here to fix.";
+                }
+            });
+        }
+    }
+
+    public async Task RequestElevation()
+    {
+        Status = "Requesting elevation...";
+        bool success = await PermissionService.ElevateAndRestartAsync();
+        if (!success)
+        {
+            Status = "Elevation failed or cancelled.";
+            await Task.Delay(3000);
+            Status = "Ready";
+        }
     }
 
     private string GetSettingsDir()
@@ -704,5 +746,5 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     }
 
     public void ReconnectRespeaker() => _respeaker.TryConnect();
-    public void Dispose() { if (_isDisposed) return; _isDisposed = true; _hotkey.Dispose(); _respeaker.Dispose(); }
+    public void Dispose() { if (_isDisposed) return; _isDisposed = true; _hotkey.Dispose(); _respeaker.Dispose(); _keyboard.Dispose(); }
 }

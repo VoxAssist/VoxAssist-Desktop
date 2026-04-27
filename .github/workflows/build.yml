@@ -75,13 +75,23 @@ jobs:
 
     - name: Publish
       run: |
-        dotnet publish -c Release -r ${{ matrix.rid }} --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true -o ./publish
+        if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+          chmod +x build-appimage.sh
+          ./build-appimage.sh
+          mkdir -p ./publish
+          mv VoxAssist-x86_64.AppImage ./publish/${{ matrix.output_name }}.AppImage
+        else
+          dotnet publish -c Release -r ${{ matrix.rid }} --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true -o ./publish
+        fi
 
     - name: Rename Output
       shell: bash
       run: |
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
           mv ./publish/VoxAssist.Desktop.exe ./publish/${{ matrix.output_name }}
+        elif [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+          # Already handled by AppImage script
+          echo "Linux AppImage already named correctly"
         else
           mv ./publish/VoxAssist.Desktop ./publish/${{ matrix.output_name }}
         fi
@@ -90,7 +100,9 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.rid }}
-        path: ./publish/${{ matrix.output_name }}
+        path: |
+          ./publish/${{ matrix.output_name }}
+          ./publish/${{ matrix.output_name }}.AppImage
 
   release:
     needs: [check-version, build]
@@ -107,7 +119,7 @@ jobs:
         tag_name: v${{ needs.check-version.outputs.version }}
         name: Release v${{ needs.check-version.outputs.version }}
         files: |
-          ./artifacts/linux-x64/VoxAssist-Linux
+          ./artifacts/linux-x64/VoxAssist-Linux.AppImage
           ./artifacts/win-x64/VoxAssist-Windows.exe
           ./artifacts/osx-x64/VoxAssist-macOS-Intel
           ./artifacts/osx-arm64/VoxAssist-macOS-AppleSilicon

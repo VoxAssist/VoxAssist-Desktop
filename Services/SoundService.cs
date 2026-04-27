@@ -12,6 +12,7 @@ public class SoundService : IDisposable
 {
     private int _chirpSample;
     private int _errorSample;
+    private int _tickSample;
 
     public SoundService()
     {
@@ -35,6 +36,7 @@ public class SoundService : IDisposable
         {
             _chirpSample = CreateSineSample(1200, 0.01f, 44100); // 30ms Pip at 1200Hz
             _errorSample = CreateSineSample(400, 0.1f, 44100);
+            _tickSample = CreateSineSample(800, 0.005f, 44100); // Very short 5ms click at 800Hz
         }
         catch (Exception ex)
         {
@@ -136,11 +138,20 @@ public class SoundService : IDisposable
         }
     }
 
+    public void PlayTick()
+    {
+        if (_tickSample == 0) return;
+        var channel = Bass.SampleGetChannel(_tickSample);
+        Bass.ChannelSetAttribute(channel, ChannelAttribute.Volume, 0.3f); // Tick should be subtle
+        Bass.ChannelPlay(channel);
+    }
+
     public void StopAll()
     {
         // Stop any active instances of these samples
         if (_chirpSample != 0) Bass.SampleStop(_chirpSample);
         if (_errorSample != 0) Bass.SampleStop(_errorSample);
+        if (_tickSample != 0) Bass.SampleStop(_tickSample);
     }
 
     public Task PlayAudioAsync(byte[] audioData)
@@ -206,6 +217,7 @@ public class SoundService : IDisposable
     {
         if (_chirpSample != 0) Bass.SampleFree(_chirpSample);
         if (_errorSample != 0) Bass.SampleFree(_errorSample);
+        if (_tickSample != 0) Bass.SampleFree(_tickSample);
         Bass.Free();
     }
 }

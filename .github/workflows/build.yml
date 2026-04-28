@@ -84,7 +84,7 @@ jobs:
           mkdir -p ./publish
           mv VoxAssist-x86_64.AppImage ./publish/${{ matrix.output_name }}.AppImage
         else
-          dotnet publish -c Release -r ${{ matrix.rid }} --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true -o ./publish
+          dotnet publish -c Release -r ${{ matrix.rid }} --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o ./publish
         fi
 
     - name: Rename Output

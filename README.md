@@ -50,4 +50,4 @@ dotnet publish -r linux-x64 -c Release --self-contained true -o publish
 ```
 
 ## 📄 License
-This project is licensed under the terms included in the repository.
+This project is licensed under the [MIT License](LICENSE).

@@ -46,18 +46,16 @@ public class InteractionRecord : ViewModelBase
             return;
         }
 
-        var audioInfo = (AudioDuration > 0) ? $"\n*[Duration: {AudioDuration:F1}s ({AudioFormat ?? "PCM"})]*" : "";
-
         if (!string.IsNullOrEmpty(ErrorMessage))
         {
-            var prompt = string.IsNullOrEmpty(RawStt) ? "" : $"**You:**{audioInfo}\n{RawStt}\n\n";
+            var prompt = string.IsNullOrEmpty(RawStt) ? "" : $"**You:**\n{RawStt}\n\n";
             DisplayMarkdown = $"{prompt}**Error:** {ErrorMessage}";
             return;
         }
 
         if (!string.IsNullOrEmpty(LlmMarkdown))
         {
-            DisplayMarkdown = $"**You:**{audioInfo}\n{RawStt}\n\n**AI:** {LlmMarkdown}";
+            DisplayMarkdown = $"**You:**\n{RawStt}\n\n**AI:** {LlmMarkdown}";
             return;
         }
 
@@ -70,7 +68,7 @@ public class InteractionRecord : ViewModelBase
 
         if (!string.IsNullOrEmpty(RawStt))
         {
-            DisplayMarkdown = $"**You:**{audioInfo}\n{RawStt}";
+            DisplayMarkdown = $"**You:**\n{RawStt}";
         }
     }
 

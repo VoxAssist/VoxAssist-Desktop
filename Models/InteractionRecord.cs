@@ -18,6 +18,7 @@ public class InteractionRecord : ViewModelBase
     public double SpeechGenDurationMs { get; set; }
     public double PostProcessingDurationMs { get; set; }
     public string? LlmModel { get; set; }
+    public bool IsAppendMode { get; set; }
     
     public double CompressionSavings => RawAudioBytes > 0 
         ? Math.Max(0, (1.0 - (double)BytesSent / RawAudioBytes) * 100.0) 

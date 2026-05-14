@@ -81,7 +81,7 @@ public class UpdateService
     private string GetPlatformAssetName()
     {
         if (OperatingSystem.IsWindows()) return "VoxAssist-Windows.exe";
-        if (OperatingSystem.IsLinux()) return "VoxAssist-Linux";
+        if (OperatingSystem.IsLinux()) return "VoxAssist-Linux.AppImage";
         if (OperatingSystem.IsMacOS())
         {
             return RuntimeInformation.ProcessArchitecture == Architecture.Arm64 

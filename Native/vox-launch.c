@@ -13,47 +13,41 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // 1. Open /dev/uinput
+    // 1. Try to open /dev/uinput
     int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-    if (fd < 0) {
-        perror("Launcher: Failed to open /dev/uinput");
-        return 1;
+    
+    if (fd >= 0) {
+        // 2. Initialize the virtual device only if open succeeded
+        ioctl(fd, UI_SET_EVBIT, EV_KEY);
+        for (int i = 1; i < 255; i++) {
+            ioctl(fd, UI_SET_KEYBIT, i);
+        }
+
+        struct uinput_setup usetup;
+        memset(&usetup, 0, sizeof(usetup));
+        usetup.id.bustype = BUS_USB;
+        usetup.id.vendor = 0x1234;
+        usetup.id.product = 0x5678;
+        strcpy(usetup.name, "VoxAssist Virtual Keyboard");
+
+        if (ioctl(fd, UI_DEV_SETUP, &usetup) >= 0 && ioctl(fd, UI_DEV_CREATE) >= 0) {
+            // 3. Success! Pass the FD to the .NET app
+            int flags = fcntl(fd, F_GETFD);
+            fcntl(fd, F_SETFD, flags & ~FD_CLOEXEC);
+
+            char fd_str[10];
+            sprintf(fd_str, "%d", fd);
+            setenv("VOXASSIST_UINPUT_FD", fd_str, 1);
+        } else {
+            fprintf(stderr, "Launcher: Device initialization failed. Continuing to app...\n");
+            close(fd);
+        }
+    } else {
+        fprintf(stderr, "Launcher: Permission denied for /dev/uinput. Continuing to app for fix...\n");
     }
 
-    // 2. Initialize the virtual device
-    ioctl(fd, UI_SET_EVBIT, EV_KEY);
-    // Enable a wide range of keys (1 to 255)
-    for (int i = 1; i < 255; i++) {
-        ioctl(fd, UI_SET_KEYBIT, i);
-    }
-
-    struct uinput_setup usetup;
-    memset(&usetup, 0, sizeof(usetup));
-    usetup.id.bustype = BUS_USB;
-    usetup.id.vendor = 0x1234;
-    usetup.id.product = 0x5678;
-    strcpy(usetup.name, "VoxAssist Virtual Keyboard");
-
-    if (ioctl(fd, UI_DEV_SETUP, &usetup) < 0) {
-        perror("Launcher: UI_DEV_SETUP failed");
-        return 1;
-    }
-
-    if (ioctl(fd, UI_DEV_CREATE) < 0) {
-        perror("Launcher: UI_DEV_CREATE failed");
-        return 1;
-    }
-
-    // 3. Ensure the file descriptor is NOT closed on exec
-    int flags = fcntl(fd, F_GETFD);
-    fcntl(fd, F_SETFD, flags & ~FD_CLOEXEC);
-
-    // 4. Pass the FD to the .NET app
-    char fd_str[10];
-    sprintf(fd_str, "%d", fd);
-    setenv("VOXASSIST_UINPUT_FD", fd_str, 1);
-
-    // 5. Execute
+    // 4. Always attempt to execute the main app
+    // This allows the app to show its own "Fix Permissions" UI
     if (execv(argv[1], &argv[1]) == -1) {
         perror("Launcher: execv failed");
         return 1;

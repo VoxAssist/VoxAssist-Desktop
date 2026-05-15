@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -269,6 +270,9 @@ public partial class MainWindowViewModel
 
     private void CheckForUpdatesOnStart() => _ = Task.Run(async () =>
     {
+        // Handle AppImage self-integration if applicable
+        IntegrateAppImage();
+
         await Task.Delay(2000);
         // Daily check logic
         if (DateTime.Now - _lastUpdateCheck > TimeSpan.FromDays(1))
@@ -278,6 +282,58 @@ public partial class MainWindowViewModel
             SaveLocalData();
         }
     });
+
+    /// <summary>
+    /// Detects if the application is running from an AppImage and creates
+    /// a desktop entry in the system menu if one does not exist.
+    /// </summary>
+    private void IntegrateAppImage()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        string? appImagePath = Environment.GetEnvironmentVariable("APPIMAGE");
+        if (string.IsNullOrEmpty(appImagePath)) return;
+
+        try
+        {
+            string desktopDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "applications");
+            string desktopPath = Path.Combine(desktopDir, "voxassist.desktop");
+
+            // We only integrate if no desktop file exists at all.
+            if (!File.Exists(desktopPath))
+            {
+                if (!Directory.Exists(desktopDir)) Directory.CreateDirectory(desktopDir);
+
+                // Create a desktop file pointing to the portable AppImage path.
+                // This allows the app to appear in the application menu immediately.
+                string content = $@"[Desktop Entry]
+Name=VoxAssist (AppImage)
+Exec={appImagePath}
+Icon=voxassist
+Type=Application
+Categories=Utility;
+Terminal=false
+Comment=Voice Assistant with AI capabilities
+";
+                File.WriteAllText(desktopPath, content);
+                
+                // Ensure the desktop file is marked as executable for the desktop manager
+                Process.Start(new ProcessStartInfo 
+                { 
+                    FileName = "chmod", 
+                    Arguments = $"+x \"{desktopPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true 
+                });
+                
+                Console.WriteLine($"AppImage integrated into system menu: {desktopPath}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"AppImage Integration Error: {ex.Message}");
+        }
+    }
 
     public async Task ManualCheckForUpdates()
     {

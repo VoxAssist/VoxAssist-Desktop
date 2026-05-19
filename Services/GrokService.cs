@@ -66,7 +66,6 @@ public class GrokService
             {
                 using var writer = new StreamWriter(outputStream, new UTF8Encoding(false), 1024, true);
 
-                await WriteFormField(writer, boundary, "model", "grok-2-audio-preview");
                 await WriteFormField(writer, boundary, "language", language);
                 await WriteFormField(writer, boundary, "format", "true");
 
@@ -277,7 +276,6 @@ public class GrokService
             using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.x.ai/v1/stt");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
             var content = new MultipartFormDataContent();
-            content.Add(new StringContent("grok-2-audio-preview"), "model");
             content.Add(new StringContent(language), "language");
             content.Add(new StringContent("true"), "format"); 
             var audioContent = new StreamContent(audioStreamToUpload);

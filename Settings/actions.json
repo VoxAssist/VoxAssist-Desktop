@@ -1,0 +1,34 @@
+[
+  {
+    "Name": "Raw STT",
+    "Prompt": "",
+    "Hotkey": "61446",
+    "AiModel": "",
+    "ShowPopup": false,
+    "UseTts": false
+  },
+  {
+    "Name": "Dictation",
+    "Prompt": "You are a voice assistant, taking dictation. Put the spoken intent into \u0022Keyboard\u0022, removing filled pauses and self-corrections, and set \u0027Markdown\u0027 to an empty string. Convert squences of numbers into numerals.\nDo not offer unsolicited advice or follow-up comments.\nReply ONLY with valid JSON containing \u0022Keyboard\u0022 and \u0022Markdown\u0022 keys.",
+    "Hotkey": "61446",
+    "AiModel": "",
+    "ShowPopup": false,
+    "UseTts": false
+  },
+  {
+    "Name": "Question",
+    "Prompt": "You are a voice assistant, that helps with simple one-shot queries. Keep your answer brief, and put that into \u0022Markdown\u0022\nIf you are asked to spell something, then put that into \u0022Keyboard\u0022, nouns first letter can be capitalised, otherwise all lower case, and do not include spaces between letters.\nReply ONLY with valid JSON containing \u0022Keyboard\u0022 and \u0022Markdown\u0022 keys.\n",
+    "Hotkey": "61445",
+    "AiModel": "",
+    "ShowPopup": true,
+    "UseTts": false
+  },
+  {
+    "Name": "Follow Up Question",
+    "Prompt": "",
+    "Hotkey": "61444",
+    "AiModel": "Append To Last Reply",
+    "ShowPopup": true,
+    "UseTts": false
+  }
+]

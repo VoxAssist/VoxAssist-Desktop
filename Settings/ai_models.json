@@ -1,0 +1,7 @@
+[
+  {
+    "ProviderName": "xAI",
+    "Model": "grok-latest",
+    "IsDefault": true
+  }
+]

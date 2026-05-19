@@ -74,11 +74,12 @@ public partial class MainWindowViewModel
             var assemblyName = assembly.GetName().Name;
             string[] files = { "settings.json", "ai_models.json", "actions.json", "ai_providers.json" };
 
-            // Ensure all configuration files exist by copying defaults from embedded resources if necessary
+            // Ensure all configuration files exist by copying defaults from embedded resources if necessary.
+            // We re-extract if the file is missing OR completely empty.
             foreach (var file in files)
             {
                 var filePath = Path.Combine(settingsDir, file);
-                if (!File.Exists(filePath))
+                if (!File.Exists(filePath) || new FileInfo(filePath).Length == 0)
                 {
                     var resourceName = $"{assemblyName}.Settings.{file}";
                     using var stream = assembly.GetManifestResourceStream(resourceName);
@@ -86,6 +87,7 @@ public partial class MainWindowViewModel
                     {
                         using var reader = new StreamReader(stream);
                         File.WriteAllText(filePath, reader.ReadToEnd());
+                        Console.WriteLine($"Restored default configuration file: {file}");
                     }
                 }
             }

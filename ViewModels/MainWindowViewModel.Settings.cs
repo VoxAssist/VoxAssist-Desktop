@@ -176,7 +176,12 @@ public partial class MainWindowViewModel
                 if (config != null)
                 {
                     IsCcw = config.IsCcw;
-                    IsGrokStt = config.IsGrokStt;
+                    _isGrokStt = config.IsGrokStt;
+                    _isGrokWebsocketStt = config.IsGrokWebsocketStt;
+                    _isVoxStt = !_isGrokStt && !_isGrokWebsocketStt;
+                    this.RaisePropertyChanged(nameof(IsGrokStt));
+                    this.RaisePropertyChanged(nameof(IsGrokWebsocketStt));
+                    this.RaisePropertyChanged(nameof(IsVoxStt));
                     GrokProvider = string.IsNullOrEmpty(config.GrokProvider) ? "xAI" : config.GrokProvider;
                     GrokLanguage = string.IsNullOrEmpty(config.GrokLanguage) ? "en" : config.GrokLanguage;
                     GrokTtsVoice = string.IsNullOrEmpty(config.GrokTtsVoice) ? "eve" : config.GrokTtsVoice;
@@ -210,6 +215,17 @@ public partial class MainWindowViewModel
         var readyRecord = new InteractionRecord { IsSystemMessage = true, SystemText = "Ready" };
         readyRecord.UpdateDisplay();
         Conversation.Add(readyRecord);
+
+        if (OperatingSystem.IsLinux() && !_keyboard.IsUInputActive)
+        {
+            var warnRecord = new InteractionRecord
+            {
+                IsSystemMessage = true,
+                SystemText = "Warning: /dev/uinput is not available. Using slower fallback keyboard simulator."
+            };
+            warnRecord.UpdateDisplay();
+            Conversation.Add(warnRecord);
+        }
     }
 
     /// <summary>
@@ -227,6 +243,7 @@ public partial class MainWindowViewModel
             {
                 IsCcw = IsCcw,
                 IsGrokStt = IsGrokStt,
+                IsGrokWebsocketStt = IsGrokWebsocketStt,
                 GrokProvider = GrokProvider,
                 GrokLanguage = GrokLanguage,
                 GrokTtsVoice = GrokTtsVoice,

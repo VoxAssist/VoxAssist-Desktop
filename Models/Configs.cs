@@ -40,6 +40,7 @@ public class UserConfig
 {
     public bool IsCcw { get; set; }
     public bool IsGrokStt { get; set; } = true;
+    public bool IsGrokWebsocketStt { get; set; } = false;
     public string GrokProvider { get; set; } = "";
     public string GrokLanguage { get; set; } = "en";
     public string GrokTtsVoice { get; set; } = "eve";

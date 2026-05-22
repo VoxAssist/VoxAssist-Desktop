@@ -14,6 +14,7 @@ using System.Runtime.InteropServices;
 using System.Threading.Channels;
 using System.Threading;
 using System.Net;
+using System.Net.WebSockets;
 
 namespace VoxAssist.Desktop.Services;
 
@@ -402,6 +403,252 @@ public class GrokService
             }
         }
         catch (Exception ex) { return new GrokResponse { Error = $"ProcessActionAsync Exception: {ex.Message}" }; }
+    }
+
+    public async Task<SttResult> StreamSpeechToTextWebsocketAsync(
+        ChannelReader<byte[]> pcmReader, 
+        string apiKey, 
+        string language, 
+        Action<string, bool> onTranscriptReceived, 
+        CancellationToken ct)
+    {
+        var result = new SttResult { Format = "PCM" };
+        long rawBytes = 0;
+        long bytesSent = 0;
+
+        using var ws = new ClientWebSocket();
+        ws.Options.SetRequestHeader("Authorization", $"Bearer {apiKey}");
+
+        // Construct WebSocket URL
+        // sample_rate=16000, encoding=pcm, language, interim_results=true
+        var wsUrl = $"wss://api.x.ai/v1/stt?sample_rate=16000&encoding=pcm&language={Uri.EscapeDataString(language)}&interim_results=true";
+
+        Exception? sendEx = null;
+        Exception? receiveEx = null;
+        var readyTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            await ws.ConnectAsync(new Uri(wsUrl), ct);
+
+            // Send task and Receive task
+            var sendTask = Task.Run(async () =>
+            {
+                try
+                {
+                    var isReady = await readyTcs.Task;
+                    if (!isReady)
+                    {
+                        return;
+                    }
+
+                    var audioBuffer = new List<byte>();
+
+                    while (await pcmReader.WaitToReadAsync(ct))
+                    {
+                        while (pcmReader.TryRead(out var chunk))
+                        {
+                            if (chunk.Length > 0)
+                            {
+                                audioBuffer.AddRange(chunk);
+
+                                // 3200 bytes = 100 ms for 16kHz 16-bit Mono PCM
+                                while (audioBuffer.Count >= 3200)
+                                {
+                                    var chunkToSend = new byte[3200];
+                                    audioBuffer.CopyTo(0, chunkToSend, 0, 3200);
+                                    audioBuffer.RemoveRange(0, 3200);
+
+                                    rawBytes += chunkToSend.Length;
+                                    bytesSent += chunkToSend.Length;
+                                    await ws.SendAsync(new ArraySegment<byte>(chunkToSend), WebSocketMessageType.Binary, true, ct);
+                                }
+                            }
+                        }
+                    }
+
+                    // Send any remaining bytes
+                    if (audioBuffer.Count > 0)
+                    {
+                        var remaining = audioBuffer.ToArray();
+                        rawBytes += remaining.Length;
+                        bytesSent += remaining.Length;
+                        await ws.SendAsync(new ArraySegment<byte>(remaining), WebSocketMessageType.Binary, true, ct);
+                    }
+
+                    // Send audio.done text control signal to xAI STT
+                    var doneMsg = Encoding.UTF8.GetBytes("{\"type\": \"audio.done\"}");
+                    await ws.SendAsync(new ArraySegment<byte>(doneMsg), WebSocketMessageType.Text, true, ct);
+                }
+                catch (Exception ex)
+                {
+                    sendEx = ex;
+                    readyTcs.TrySetResult(false);
+                }
+            }, ct);
+
+            var sttTextBuilder = new StringBuilder();
+
+            var receiveTask = Task.Run(async () =>
+            {
+                var buffer = new byte[8192];
+                var messageBuilder = new StringBuilder();
+
+                try
+                {
+                    while (ws.State == WebSocketState.Open || ws.State == WebSocketState.CloseSent || ws.State == WebSocketState.CloseReceived)
+                    {
+                        var wsResult = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+                        if (wsResult.MessageType == WebSocketMessageType.Close)
+                        {
+                            try
+                            {
+                                await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Acknowledge Close", ct);
+                            }
+                            catch { }
+                            break;
+                        }
+
+                        if (wsResult.MessageType == WebSocketMessageType.Text)
+                        {
+                            var textChunk = Encoding.UTF8.GetString(buffer, 0, wsResult.Count);
+                            messageBuilder.Append(textChunk);
+
+                            if (wsResult.EndOfMessage)
+                            {
+                                var jsonStr = messageBuilder.ToString();
+                                messageBuilder.Clear();
+                                Console.Error.WriteLine($"[WS RECEIVE] {jsonStr}");
+
+                                try
+                                {
+                                    using var doc = JsonDocument.Parse(jsonStr);
+                                    var root = doc.RootElement;
+
+                                    if (root.TryGetProperty("type", out var typeProp))
+                                    {
+                                        var typeStr = typeProp.GetString();
+                                        if (typeStr == "transcript.created")
+                                        {
+                                            readyTcs.TrySetResult(true);
+                                            continue;
+                                        }
+                                        else if (typeStr == "transcript.done")
+                                        {
+                                            if (root.TryGetProperty("text", out var doneTextProp))
+                                            {
+                                                var doneText = doneTextProp.GetString();
+                                                if (!string.IsNullOrEmpty(doneText))
+                                                {
+                                                    sttTextBuilder.Clear();
+                                                    sttTextBuilder.Append(doneText);
+                                                }
+                                            }
+
+                                            try
+                                            {
+                                                await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Done", ct);
+                                            }
+                                            catch { }
+                                            break;
+                                        }
+                                        else if (typeStr == "error")
+                                        {
+                                            string errMsg = "Unknown WebSocket error";
+                                            if (root.TryGetProperty("error", out var errorProp) && errorProp.ValueKind == JsonValueKind.Object)
+                                            {
+                                                if (errorProp.TryGetProperty("message", out var msgProp))
+                                                {
+                                                    errMsg = msgProp.GetString() ?? errMsg;
+                                                }
+                                            }
+                                            else if (root.TryGetProperty("message", out var msgPropDirect))
+                                            {
+                                                errMsg = msgPropDirect.GetString() ?? errMsg;
+                                            }
+
+                                            receiveEx = new Exception(errMsg);
+                                            readyTcs.TrySetResult(false);
+                                            break;
+                                        }
+                                    }
+
+                                    if (root.TryGetProperty("text", out var textProp))
+                                    {
+                                        var text = textProp.GetString();
+                                        bool isFinal = false;
+                                        if (root.TryGetProperty("is_final", out var finalProp))
+                                        {
+                                            isFinal = finalProp.GetBoolean();
+                                        }
+
+                                        if (!string.IsNullOrEmpty(text))
+                                        {
+                                            onTranscriptReceived(text, isFinal);
+                                            
+                                            if (isFinal)
+                                            {
+                                                if (sttTextBuilder.Length > 0 && !sttTextBuilder.ToString().EndsWith(" ") && !text.StartsWith(" ") && !char.IsPunctuation(text[0]))
+                                                {
+                                                    sttTextBuilder.Append(" ");
+                                                }
+                                                sttTextBuilder.Append(text);
+                                            }
+                                        }
+                                    }
+                                }
+                                catch (JsonException)
+                                {
+                                    // Ignore JSON parse errors
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    receiveEx = ex;
+                    readyTcs.TrySetResult(false);
+                }
+                finally
+                {
+                    readyTcs.TrySetResult(false);
+                }
+            }, ct);
+
+            // Wait for both tasks to finish
+            await Task.WhenAll(sendTask, receiveTask);
+
+            if (sttTextBuilder.Length == 0)
+            {
+                if (receiveEx != null)
+                {
+                    result.Text = $"Error: Receive failed: {receiveEx.Message}";
+                }
+                else if (sendEx != null)
+                {
+                    result.Text = $"Error: Send failed: {sendEx.Message}";
+                }
+                else
+                {
+                    result.Text = "Error: Connection closed by server or empty transcript returned.";
+                }
+            }
+            else
+            {
+                result.Text = sttTextBuilder.ToString();
+            }
+
+            result.RawBytes = rawBytes;
+            result.BytesSent = bytesSent;
+            result.Duration = rawBytes / 32000.0; // 16kHz 16-bit mono = 32000 bytes/sec
+        }
+        catch (Exception ex)
+        {
+            result.Text = $"Error: {ex.Message}";
+        }
+
+        return result;
     }
 }
 

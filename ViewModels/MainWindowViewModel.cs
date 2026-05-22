@@ -7,6 +7,7 @@ using ReactiveUI;
 using VoxAssist.Desktop.Services;
 using SharpHook.Native;
 using SharpHook.Data;
+using System.Text;
 using Avalonia.Threading;
 using System.Net.Http;
 using System.Net;
@@ -218,11 +219,32 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     public bool IsGrokStt
     {
         get => _isGrokStt;
-        set
-        {
-            this.RaiseAndSetIfChanged(ref _isGrokStt, value);
-            SaveLocalData();
-        }
+        set { if (value) SetSttMode(true, false, false); }
+    }
+
+    private bool _isGrokWebsocketStt;
+    public bool IsGrokWebsocketStt
+    {
+        get => _isGrokWebsocketStt;
+        set { if (value) SetSttMode(false, true, false); }
+    }
+
+    private bool _isVoxStt;
+    public bool IsVoxStt
+    {
+        get => _isVoxStt;
+        set { if (value) SetSttMode(false, false, true); }
+    }
+
+    private void SetSttMode(bool isGrok, bool isGrokWs, bool isVox)
+    {
+        if (_isGrokStt == isGrok && _isGrokWebsocketStt == isGrokWs && _isVoxStt == isVox)
+            return;
+
+        this.RaiseAndSetIfChanged(ref _isGrokStt, isGrok, nameof(IsGrokStt));
+        this.RaiseAndSetIfChanged(ref _isGrokWebsocketStt, isGrokWs, nameof(IsGrokWebsocketStt));
+        this.RaiseAndSetIfChanged(ref _isVoxStt, isVox, nameof(IsVoxStt));
+        SaveLocalData();
     }
 
     private bool _editingGrokStt;
@@ -431,14 +453,21 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             {
                 // Wait for the configured pre-buffer delay before sending data
                 await Task.Delay(PreBufferMs, token);
-                await StartGrokStreaming(action, token, record);
+                if (IsGrokWebsocketStt)
+                {
+                    await StartGrokWebsocketStreaming(action, token, record);
+                }
+                else
+                {
+                    await StartGrokStreaming(action, token, record);
+                }
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
                 record.ErrorMessage = ex.Message;
                 record.UpdateDisplay();
-                Dispatcher.UIThread.Post(() => Conversation.Add(record));
+                SafeAddConversationRecord(record);
             }
         });
     }
@@ -492,7 +521,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                 _sound.PlayError();
                 record.ErrorMessage = "Grok Provider not configured.";
                 record.UpdateDisplay();
-                Dispatcher.UIThread.Post(() => Conversation.Add(record));
+                SafeAddConversationRecord(record);
                 StopTicking();
                 return;
             }
@@ -508,7 +537,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                 _sound.PlayError();
                 record.ErrorMessage = $"STT Error: {sttResult?.Text ?? "Unknown"}";
                 record.UpdateDisplay();
-                Dispatcher.UIThread.Post(() => Conversation.Add(record));
+                SafeAddConversationRecord(record);
                 StopTicking();
             }
             else
@@ -534,13 +563,201 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                 _sound.PlayError();
                 record.ErrorMessage = $"Streaming Error: {ex.Message}";
                 record.UpdateDisplay();
-                Dispatcher.UIThread.Post(() => Conversation.Add(record));
+                SafeAddConversationRecord(record);
             }
             StopTicking();
         }
         finally
         {
             // Reset UI state
+            Dispatcher.UIThread.Post(() =>
+            {
+                MicStatus = "Ready";
+                Status = "Ready";
+            });
+        }
+    }
+
+    /// <summary>
+    /// Manages the real-time WebSocket streaming of audio data to the STT provider.
+    /// </summary>
+    private async Task StartGrokWebsocketStreaming(ActionViewModel action, CancellationToken token, InteractionRecord record)
+    {
+        Status = $"Action: {action.Name} (Streaming WebSocket...)";
+        try
+        {
+            var provider = AiProviders.FirstOrDefault(p => p.Name == GrokProvider);
+            if (provider == null || string.IsNullOrEmpty(provider.ApiKey))
+            {
+                _sound.PlayError();
+                record.ErrorMessage = "Grok Provider not configured.";
+                record.UpdateDisplay();
+                SafeAddConversationRecord(record);
+                StopTicking();
+                return;
+            }
+
+            // Add the record to the UI early to display realtime updates
+            SafeAddConversationRecord(record);
+
+            var sb = new StringBuilder();
+            string typedSoFar = "";
+            
+            // We can define a callback for when finalized text is received
+            Action<string, bool> onTranscriptChunk = (chunkText, isFinal) =>
+            {
+                Console.Error.WriteLine($"[VM CALLBACK] chunkText='{chunkText}', isFinal={isFinal}");
+                if (string.IsNullOrEmpty(chunkText)) return;
+                
+                Dispatcher.UIThread.Post(async () =>
+                {
+                    string targetText = "";
+                    if (isFinal)
+                    {
+                        // Accumulate text
+                        if (sb.Length > 0)
+                        {
+                            bool needsSpace = !sb.ToString().EndsWith(" ") && !chunkText.StartsWith(" ") && !char.IsPunctuation(chunkText[0]);
+                            if (needsSpace)
+                            {
+                                sb.Append(" ");
+                            }
+                        }
+                        sb.Append(chunkText);
+                        
+                        targetText = sb.ToString();
+                        record.RawStt = targetText;
+                        
+                        if (action.AiModel == "None")
+                        {
+                            record.TypedText = targetText;
+                            record.UpdateDisplay();
+                            
+                            // Type the difference in realtime
+                            int commonLen = 0;
+                            while (commonLen < typedSoFar.Length && commonLen < targetText.Length && typedSoFar[commonLen] == targetText[commonLen])
+                            {
+                                commonLen++;
+                            }
+                            
+                            int backspaces = typedSoFar.Length - commonLen;
+                            string newSuffix = targetText.Substring(commonLen);
+                            
+                            string backspaceStr = new string('\b', backspaces);
+                            string textToType = backspaceStr + newSuffix;
+                            
+                            Console.Error.WriteLine($"[TYPING] isFinal=true, typedSoFar='{typedSoFar}', targetText='{targetText}', commonLen={commonLen}, backspaces={backspaces}, typing='{textToType}'");
+                            
+                            typedSoFar = targetText;
+                            if (!string.IsNullOrEmpty(textToType))
+                            {
+                                await _keyboard.TypeTextAsync(textToType);
+                            }
+                        }
+                        else
+                        {
+                            record.UpdateDisplay();
+                        }
+                    }
+                    else
+                    {
+                        // Interim results: show accumulated final text + current interim chunk on screen
+                        var displayBuilder = new StringBuilder(sb.ToString());
+                        if (displayBuilder.Length > 0 && !displayBuilder.ToString().EndsWith(" ") && !chunkText.StartsWith(" ") && !char.IsPunctuation(chunkText[0]))
+                        {
+                            displayBuilder.Append(" ");
+                        }
+                        displayBuilder.Append(chunkText);
+                        
+                        targetText = displayBuilder.ToString();
+                        record.RawStt = targetText;
+                        record.UpdateDisplay();
+                        
+                        if (action.AiModel == "None")
+                        {
+                            record.TypedText = targetText;
+                            record.UpdateDisplay();
+                            
+                            // Type the difference in realtime
+                            int commonLen = 0;
+                            while (commonLen < typedSoFar.Length && commonLen < targetText.Length && typedSoFar[commonLen] == targetText[commonLen])
+                            {
+                                commonLen++;
+                            }
+                            
+                            int backspaces = typedSoFar.Length - commonLen;
+                            string newSuffix = targetText.Substring(commonLen);
+                            
+                            string backspaceStr = new string('\b', backspaces);
+                            string textToType = backspaceStr + newSuffix;
+                            
+                            Console.Error.WriteLine($"[TYPING] isFinal=false, typedSoFar='{typedSoFar}', targetText='{targetText}', commonLen={commonLen}, backspaces={backspaces}, typing='{textToType}'");
+                            
+                            typedSoFar = targetText;
+                            if (!string.IsNullOrEmpty(textToType))
+                            {
+                                await _keyboard.TypeTextAsync(textToType);
+                            }
+                        }
+                    }
+                });
+            };
+
+            var sttResult = await _grok.StreamSpeechToTextWebsocketAsync(_pcmChannel!.Reader, provider.ApiKey, GrokLanguage, onTranscriptChunk, token);
+            _sttLatencySw.Stop();
+            
+            record.TtsDurationMs = _sttLatencySw.Elapsed.TotalMilliseconds;
+            
+            if (sttResult == null || string.IsNullOrEmpty(sttResult.Text) || sttResult.Text.StartsWith("Error"))
+            {
+                // Only play error if it was not cancelled by user
+                if (!token.IsCancellationRequested)
+                {
+                    _sound.PlayError();
+                    record.ErrorMessage = $"STT WebSocket Error: {sttResult?.Text ?? "Unknown"}";
+                    record.UpdateDisplay();
+                }
+                StopTicking();
+            }
+            else
+            {
+                record.RawStt = sttResult.Text;
+                record.AudioDuration = sttResult.Duration;
+                record.AudioFormat = sttResult.Format;
+                record.RawAudioBytes = sttResult.RawBytes;
+                record.BytesSent = sttResult.BytesSent;
+                record.Compression = "None"; // WebSockets sends raw PCM
+
+                if (action.AiModel != "None")
+                {
+                    var sw = Stopwatch.StartNew();
+                    await ProcessActionResponse(sttResult.Text, action, record);
+                    sw.Stop();
+                    record.PostProcessingDurationMs = sw.Elapsed.TotalMilliseconds;
+                }
+                else
+                {
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        record.TypedText = sttResult.Text;
+                        record.UpdateDisplay();
+                        StopTicking();
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!token.IsCancellationRequested)
+            {
+                _sound.PlayError();
+                record.ErrorMessage = $"WebSocket Streaming Error: {ex.Message}";
+                record.UpdateDisplay();
+            }
+            StopTicking();
+        }
+        finally
+        {
             Dispatcher.UIThread.Post(() =>
             {
                 MicStatus = "Ready";
@@ -575,7 +792,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                     _sound.PlayError();
                     record.ErrorMessage = "No previous LLM action to append to.";
                     record.UpdateDisplay();
-                    Dispatcher.UIThread.Post(() => Conversation.Add(record));
+                    SafeAddConversationRecord(record);
                     return;
                 }
 
@@ -656,7 +873,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                                 record.LlmMarkdown = result.Markdown;
                                 record.TypedText = result.Keyboard;
                                 record.UpdateDisplay();
-                                Dispatcher.UIThread.Post(() => Conversation.Add(record));
+                                SafeAddConversationRecord(record);
 
                                 // Handle UI feedback: activate window if requested
                                 if (action.ShowPopup && !string.IsNullOrEmpty(result.Markdown))
@@ -715,13 +932,27 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
             // Finalize the record display
             record.UpdateDisplay();
-            Dispatcher.UIThread.Post(() => Conversation.Add(record));
+            SafeAddConversationRecord(record);
         }
         finally
         {
             // Always stop the "thinking" ticking sound when processing finishes
             StopTicking();
         }
+    }
+
+    /// <summary>
+    /// Safely adds a record to the conversation on the UI thread if not already present.
+    /// </summary>
+    private void SafeAddConversationRecord(InteractionRecord record)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!Conversation.Contains(record))
+            {
+                Conversation.Add(record);
+            }
+        });
     }
 
     public async Task AddLlm()
@@ -756,6 +987,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     public async Task EditGrokStt()
     {
         var oldIsGrok = IsGrokStt;
+        var oldIsGrokWs = IsGrokWebsocketStt;
+        var oldIsVox = IsVoxStt;
         var oldProvider = GrokProvider;
         var oldLang = GrokLanguage;
         var oldComp = SelectedCompression;
@@ -769,7 +1002,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             if (await dialog.ShowDialog<bool>(mainWindow)) SaveLocalData();
             else
             {
-                IsGrokStt = oldIsGrok;
+                _isGrokStt = oldIsGrok;
+                _isGrokWebsocketStt = oldIsGrokWs;
+                _isVoxStt = oldIsVox;
+                this.RaisePropertyChanged(nameof(IsGrokStt));
+                this.RaisePropertyChanged(nameof(IsGrokWebsocketStt));
+                this.RaisePropertyChanged(nameof(IsVoxStt));
                 GrokProvider = oldProvider;
                 GrokLanguage = oldLang;
                 SelectedCompression = oldComp;
@@ -780,9 +1018,11 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     public async Task EditVoxStt()
     {
         var oldIsGrok = IsGrokStt;
+        var oldIsGrokWs = IsGrokWebsocketStt;
+        var oldIsVox = IsVoxStt;
         var oldUrl = VoxAssistHostUrl;
-        EditingGrokStt = true;
-        EditingVoxStt = false;
+        EditingGrokStt = false;
+        EditingVoxStt = true;
         var dialog = new SttConfigDialog(this);
         dialog.DataContext = dialog;
         var mainWindow = GetMainWindow();
@@ -791,7 +1031,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             if (await dialog.ShowDialog<bool>(mainWindow)) SaveLocalData();
             else
             {
-                IsGrokStt = oldIsGrok;
+                _isGrokStt = oldIsGrok;
+                _isGrokWebsocketStt = oldIsGrokWs;
+                _isVoxStt = oldIsVox;
+                this.RaisePropertyChanged(nameof(IsGrokStt));
+                this.RaisePropertyChanged(nameof(IsGrokWebsocketStt));
+                this.RaisePropertyChanged(nameof(IsVoxStt));
                 VoxAssistHostUrl = oldUrl;
             }
         }

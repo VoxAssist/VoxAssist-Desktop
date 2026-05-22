@@ -252,7 +252,11 @@
                                     <Button Grid.Column="1" Content="Edit" Command="{Binding EditGrokStt}"/>
                                 </Grid>
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <RadioButton Content="VoxAssist-Server" IsChecked="{Binding IsGrokStt, Converter={StaticResource InverseBoolConverter}}"/>
+                                    <RadioButton Content="Grok Websocket" IsChecked="{Binding IsGrokWebsocketStt}"/>
+                                    <Button Grid.Column="1" Content="Edit" Command="{Binding EditGrokStt}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <RadioButton Content="VoxAssist-Server" IsChecked="{Binding IsVoxStt}"/>
                                     <Button Grid.Column="1" Content="Edit" Command="{Binding EditVoxStt}"/>
                                 </Grid>
                             </StackPanel>

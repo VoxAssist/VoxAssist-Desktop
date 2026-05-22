@@ -13,6 +13,12 @@
     <Folder Include="Models\" />
     <AvaloniaResource Include="Assets\**" />
     <EmbeddedResource Include="Settings\*.json" />
+    <None Update="Native/setup-launcher.sh">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Native/vox-launch.c">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>

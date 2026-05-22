@@ -14,6 +14,7 @@ public class KeyboardService : IDisposable
 {
     private readonly EventSimulator? _simulator;
     private readonly UInputDevice? _uinput;
+    private readonly SemaphoreSlim _semaphore = new(1, 1);
 
     public KeyboardService()
     {
@@ -45,24 +46,54 @@ public class KeyboardService : IDisposable
         }
     }
 
+    public bool IsUInputActive => _uinput != null;
+
     public async Task TypeTextAsync(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
 
-        if (_uinput != null)
+        await _semaphore.WaitAsync();
+        try
         {
-            await _uinput.TypeTextAsync(text);
+            if (_uinput != null)
+            {
+                await _uinput.TypeTextAsync(text);
+            }
+            else if (_simulator != null)
+            {
+                if (text.Contains('\b'))
+                {
+                    foreach (char c in text)
+                    {
+                        if (c == '\b')
+                        {
+                            _simulator.SimulateKeyPress(KeyCode.VcBackspace);
+                            _simulator.SimulateKeyRelease(KeyCode.VcBackspace);
+                        }
+                        else
+                        {
+                            _simulator.SimulateTextEntry(c.ToString());
+                        }
+                        await Task.Delay(5);
+                    }
+                }
+                else
+                {
+                    _simulator.SimulateTextEntry(text);
+                }
+                await Task.CompletedTask;
+            }
         }
-        else if (_simulator != null)
+        finally
         {
-            _simulator.SimulateTextEntry(text);
-            await Task.CompletedTask;
+            _semaphore.Release();
         }
     }
 
     public void Dispose()
     {
         _uinput?.Dispose();
+        _semaphore.Dispose();
     }
 }
 
@@ -200,8 +231,11 @@ internal class UInputDevice : IDisposable
 
     private void SendKey(ushort code, bool pressed)
     {
+        var now = DateTimeOffset.UtcNow;
         var ev = new input_event
         {
+            tv_sec = (nint)now.ToUnixTimeSeconds(),
+            tv_usec = (nint)(now.TimeOfDay.Ticks % TimeSpan.TicksPerSecond / 10),
             type = EV_KEY,
             code = code,
             value = pressed ? 1 : 0
@@ -213,6 +247,8 @@ internal class UInputDevice : IDisposable
 
         var syn = new input_event
         {
+            tv_sec = (nint)now.ToUnixTimeSeconds(),
+            tv_usec = (nint)(now.TimeOfDay.Ticks % TimeSpan.TicksPerSecond / 10),
             type = EV_SYN,
             code = SYN_REPORT,
             value = 0
@@ -261,6 +297,7 @@ internal class UInputDevice : IDisposable
         { '[', (26, false) }, { '{', (26, true) }, { ']', (27, false) }, { '}', (27, true) },
         { '\\', (43, false) }, { '|', (43, true) }, { ';', (39, false) }, { ':', (39, true) },
         { '\'', (40, false) }, { '"', (40, true) }, { '/', (53, false) }, { '<', (51, true) },
-        { '>', (52, true) }, { '`', (41, false) }, { '~', (41, true) }
+        { '>', (52, true) }, { '`', (41, false) }, { '~', (41, true) },
+        { '\b', (14, false) }
     };
 }

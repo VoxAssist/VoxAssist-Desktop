@@ -728,22 +728,10 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                 record.BytesSent = sttResult.BytesSent;
                 record.Compression = "None"; // WebSockets sends raw PCM
 
-                if (action.AiModel != "None")
-                {
-                    var sw = Stopwatch.StartNew();
-                    await ProcessActionResponse(sttResult.Text, action, record);
-                    sw.Stop();
-                    record.PostProcessingDurationMs = sw.Elapsed.TotalMilliseconds;
-                }
-                else
-                {
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        record.TypedText = sttResult.Text;
-                        record.UpdateDisplay();
-                        StopTicking();
-                    });
-                }
+                var sw = Stopwatch.StartNew();
+                await ProcessActionResponse(sttResult.Text, action, record);
+                sw.Stop();
+                record.PostProcessingDurationMs = sw.Elapsed.TotalMilliseconds;
             }
         }
         catch (Exception ex)
@@ -927,7 +915,10 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             {
                 // No AI model selected: Just type the raw transcribed text
                 record.TypedText = text;
-                await _keyboard.TypeTextAsync(text);
+                if (!IsGrokWebsocketStt)
+                {
+                    await _keyboard.TypeTextAsync(text);
+                }
             }
 
             // Finalize the record display

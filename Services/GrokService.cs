@@ -588,11 +588,10 @@ public class GrokService
                                             
                                             if (isFinal)
                                             {
-                                                if (sttTextBuilder.Length > 0 && !sttTextBuilder.ToString().EndsWith(" ") && !text.StartsWith(" ") && !char.IsPunctuation(text[0]))
-                                                {
-                                                    sttTextBuilder.Append(" ");
-                                                }
-                                                sttTextBuilder.Append(text);
+                                                var currentAcc = sttTextBuilder.ToString();
+                                                var merged = MergeOverlap(currentAcc, text);
+                                                sttTextBuilder.Clear();
+                                                sttTextBuilder.Append(merged);
                                             }
                                         }
                                     }
@@ -649,6 +648,58 @@ public class GrokService
         }
 
         return result;
+    }
+
+    public static string MergeOverlap(string accumulated, string incoming)
+    {
+        if (string.IsNullOrEmpty(accumulated)) return incoming;
+        if (string.IsNullOrEmpty(incoming)) return accumulated;
+
+        string accTrim = accumulated.Trim();
+        string incTrim = incoming.Trim();
+
+        int maxOverlap = Math.Min(accTrim.Length, incTrim.Length);
+        int overlapLength = 0;
+
+        for (int len = maxOverlap; len > 0; len--)
+        {
+            string suffix = accTrim.Substring(accTrim.Length - len);
+            string prefix = incTrim.Substring(0, len);
+
+            if (string.Equals(suffix, prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                // Check word boundary on the left of the overlap in accTrim
+                bool leftBoundary = (accTrim.Length - len - 1 < 0) || 
+                                     char.IsWhiteSpace(accTrim[accTrim.Length - len - 1]) || 
+                                     char.IsPunctuation(accTrim[accTrim.Length - len - 1]);
+
+                // Check word boundary on the right of the overlap in incTrim
+                bool rightBoundary = (len >= incTrim.Length) || 
+                                      char.IsWhiteSpace(incTrim[len]) || 
+                                      char.IsPunctuation(incTrim[len]);
+
+                if (leftBoundary && rightBoundary)
+                {
+                    overlapLength = len;
+                    break;
+                }
+            }
+        }
+
+        if (overlapLength > 0)
+        {
+            string newSuffix = incTrim.Substring(overlapLength);
+            if (string.IsNullOrWhiteSpace(newSuffix))
+            {
+                return accumulated;
+            }
+
+            bool needsSpace = !accumulated.EndsWith(" ") && !newSuffix.StartsWith(" ") && !char.IsPunctuation(newSuffix[0]);
+            return accumulated + (needsSpace ? " " : "") + newSuffix;
+        }
+
+        bool needsDefaultSpace = !accumulated.EndsWith(" ") && !incoming.StartsWith(" ") && !char.IsPunctuation(incoming[0]);
+        return accumulated + (needsDefaultSpace ? " " : "") + incoming;
     }
 }
 

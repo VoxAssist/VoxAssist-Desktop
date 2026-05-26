@@ -615,15 +615,10 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                     if (isFinal)
                     {
                         // Accumulate text
-                        if (sb.Length > 0)
-                        {
-                            bool needsSpace = !sb.ToString().EndsWith(" ") && !chunkText.StartsWith(" ") && !char.IsPunctuation(chunkText[0]);
-                            if (needsSpace)
-                            {
-                                sb.Append(" ");
-                            }
-                        }
-                        sb.Append(chunkText);
+                        var currentAcc = sb.ToString();
+                        var merged = GrokService.MergeOverlap(currentAcc, chunkText);
+                        sb.Clear();
+                        sb.Append(merged);
                         
                         targetText = sb.ToString();
                         record.RawStt = targetText;
@@ -662,14 +657,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                     else
                     {
                         // Interim results: show accumulated final text + current interim chunk on screen
-                        var displayBuilder = new StringBuilder(sb.ToString());
-                        if (displayBuilder.Length > 0 && !displayBuilder.ToString().EndsWith(" ") && !chunkText.StartsWith(" ") && !char.IsPunctuation(chunkText[0]))
-                        {
-                            displayBuilder.Append(" ");
-                        }
-                        displayBuilder.Append(chunkText);
-                        
-                        targetText = displayBuilder.ToString();
+                        targetText = GrokService.MergeOverlap(sb.ToString(), chunkText);
                         record.RawStt = targetText;
                         record.UpdateDisplay();
                         

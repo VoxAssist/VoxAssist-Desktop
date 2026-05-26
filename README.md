@@ -33,8 +33,23 @@ VoxAssist uses a specialized security model for Linux to handle `/dev/uinput` ac
 
 ## 🛠️ Installation (Linux)
 
-### Pre-built Binaries
-You can download the latest portable **AppImage** or standalone binaries from the [GitHub Releases](https://github.com/VoxAssist/VoxAssist-Desktop/releases) page.
+### 1-Line Terminal Installer (Recommended)
+You can automatically download, install, and integrate VoxAssist into your desktop application menu with a single command:
+```bash
+curl -sSL https://raw.githubusercontent.com/VoxAssist/VoxAssist-Desktop/master/install.sh | bash
+```
+
+### Manual AppImage Installation
+1. Download the latest `VoxAssist-x86_64.AppImage` from the [GitHub Releases](https://github.com/VoxAssist/VoxAssist-Desktop/releases) page.
+2. Make it executable:
+   ```bash
+   chmod +x VoxAssist-x86_64.AppImage
+   ```
+3. Run the AppImage. If your Linux distribution does not have FUSE 2 installed (getting a `dlopen(): error loading libfuse.so.2` error), run the AppImage from the terminal once with the `--appimage-extract-and-run` flag:
+   ```bash
+   ./VoxAssist-x86_64.AppImage --appimage-extract-and-run
+   ```
+   *This initial run will automatically add VoxAssist to your desktop menu. You can launch it directly from your KDE/GNOME application launcher for all subsequent runs!*
 
 ### Build Requirements
 - .NET 10 SDK

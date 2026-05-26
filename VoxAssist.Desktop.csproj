@@ -60,4 +60,9 @@
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.6" />
     <PackageReference Include="SharpHook" Version="7.1.1" />
   </ItemGroup>
+
+  <Target Name="CompileVoxLaunch" AfterTargets="Build" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
+    <Message Importance="High" Text="Compiling native launcher (vox-launch)..." />
+    <Exec Command="gcc Native/vox-launch.c -o $(OutputPath)/vox-launch" />
+  </Target>
 </Project>

@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
             int flags = fcntl(fd, F_GETFD);
             fcntl(fd, F_SETFD, flags & ~FD_CLOEXEC);
 
-            char fd_str[10];
+            char fd_str[12];
             sprintf(fd_str, "%d", fd);
             setenv("VOXASSIST_UINPUT_FD", fd_str, 1);
         } else {

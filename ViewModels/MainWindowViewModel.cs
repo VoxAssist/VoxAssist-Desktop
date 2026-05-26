@@ -260,7 +260,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     public double UpdateProgress { get => _updateProgress; set => this.RaiseAndSetIfChanged(ref _updateProgress, value); }
 
     private string _version = "1.0.0";
-    public string VersionString => $"v{_version}";
+    private string _buildSuffix = "";
+    public string VersionString => $"v{_version}{_buildSuffix}";
 
     private DateTime _lastUpdateCheck = DateTime.MinValue;
 
@@ -288,6 +289,30 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
         var version = Assembly.GetExecutingAssembly().GetName().Version;
         if (version != null) _version = $"{version.Major}.{version.Minor}.{version.Build}";
+
+        try
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            var buildDate = DateTime.MinValue;
+            if (!string.IsNullOrEmpty(assembly.Location) && System.IO.File.Exists(assembly.Location))
+            {
+                buildDate = System.IO.File.GetLastWriteTime(assembly.Location);
+            }
+            else
+            {
+                var exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+                if (!string.IsNullOrEmpty(exePath) && System.IO.File.Exists(exePath))
+                {
+                    buildDate = System.IO.File.GetLastWriteTime(exePath);
+                }
+            }
+
+            if (buildDate != DateTime.MinValue)
+            {
+                _buildSuffix = $" ({buildDate:yyyy-MM-dd HH:mm})";
+            }
+        }
+        catch { }
 
         _hotkey.HotKeyPressedDynamic += OnHotKeyPressed;
         _hotkey.HotKeyReleasedDynamic += OnHotKeyReleased;

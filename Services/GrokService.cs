@@ -650,10 +650,46 @@ public class GrokService
         return result;
     }
 
+    private static string NormalizeForPrefixCompare(string s)
+    {
+        var sb = new StringBuilder();
+        foreach (char c in s)
+        {
+            if (char.IsLetterOrDigit(c))
+            {
+                sb.Append(char.ToLowerInvariant(c));
+            }
+        }
+        return sb.ToString();
+    }
+
+    public static bool IsCumulativeUpdate(string accumulated, string incoming)
+    {
+        if (string.IsNullOrEmpty(accumulated) || string.IsNullOrEmpty(incoming)) return false;
+
+        string normAcc = NormalizeForPrefixCompare(accumulated);
+        string normInc = NormalizeForPrefixCompare(incoming);
+
+        // Compare up to the first 12 characters (roughly 2-3 words)
+        int compareLen = Math.Min(12, Math.Min(normAcc.Length, normInc.Length));
+        if (compareLen == 0) return false;
+
+        string accPrefix = normAcc.Substring(0, compareLen);
+        string incPrefix = normInc.Substring(0, compareLen);
+
+        return string.Equals(accPrefix, incPrefix, StringComparison.OrdinalIgnoreCase);
+    }
+
     public static string MergeOverlap(string accumulated, string incoming)
     {
         if (string.IsNullOrEmpty(accumulated)) return incoming;
         if (string.IsNullOrEmpty(incoming)) return accumulated;
+
+        // If the incoming text is a cumulative update from the beginning, replace the entire accumulated text
+        if (IsCumulativeUpdate(accumulated, incoming))
+        {
+            return incoming;
+        }
 
         string accTrim = accumulated.Trim();
         string incTrim = incoming.Trim();

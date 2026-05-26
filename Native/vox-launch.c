@@ -48,6 +48,7 @@ int main(int argc, char *argv[]) {
 
     // 4. Always attempt to execute the main app
     // This allows the app to show its own "Fix Permissions" UI
+    setenv("APPIMAGE_EXTRACT_AND_RUN", "1", 1);
     if (execv(argv[1], &argv[1]) == -1) {
         perror("Launcher: execv failed");
         return 1;

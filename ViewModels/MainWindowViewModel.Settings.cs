@@ -318,17 +318,50 @@ public partial class MainWindowViewModel
             string desktopDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "applications");
             string desktopPath = Path.Combine(desktopDir, "voxassist.desktop");
 
-            // We only integrate if no desktop file exists at all.
-            if (!File.Exists(desktopPath))
+            string voxassistDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "voxassist");
+            if (!Directory.Exists(voxassistDir)) Directory.CreateDirectory(voxassistDir);
+
+            // Copy icon from AppImage mount directory if it exists
+            string destIconPath = Path.Combine(voxassistDir, "voxassist.png");
+            string? appDir = Environment.GetEnvironmentVariable("APPDIR");
+            if (!string.IsNullOrEmpty(appDir))
+            {
+                string sourceIconPath = Path.Combine(appDir, "voxassist.png");
+                if (File.Exists(sourceIconPath))
+                {
+                    try
+                    {
+                        File.Copy(sourceIconPath, destIconPath, true);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"AppImage Integration: Failed to copy icon: {ex.Message}");
+                    }
+                }
+            }
+
+            string launcherBin = Path.Combine(voxassistDir, "vox-launch");
+            string execPath = File.Exists(launcherBin) ? $"\"{launcherBin}\" \"{appImagePath}\"" : $"\"{appImagePath}\"";
+
+            bool needsWrite = true;
+            if (File.Exists(desktopPath))
+            {
+                // Check if current desktop file matches the current execPath and icon
+                string existingContent = File.ReadAllText(desktopPath);
+                if (existingContent.Contains($"Exec={execPath}") && existingContent.Contains($"Icon={destIconPath}"))
+                {
+                    needsWrite = false;
+                }
+            }
+
+            if (needsWrite)
             {
                 if (!Directory.Exists(desktopDir)) Directory.CreateDirectory(desktopDir);
 
-                // Create a desktop file pointing to the portable AppImage path.
-                // This allows the app to appear in the application menu immediately.
                 string content = $@"[Desktop Entry]
-Name=VoxAssist (AppImage)
-Exec={appImagePath}
-Icon=voxassist
+Name=VoxAssist
+Exec={execPath}
+Icon={destIconPath}
 Type=Application
 Categories=Utility;
 Terminal=false
@@ -337,15 +370,19 @@ Comment=Voice Assistant with AI capabilities
                 File.WriteAllText(desktopPath, content);
                 
                 // Ensure the desktop file is marked as executable for the desktop manager
-                Process.Start(new ProcessStartInfo 
+                var process = Process.Start(new ProcessStartInfo 
                 { 
                     FileName = "chmod", 
                     Arguments = $"+x \"{desktopPath}\"",
                     UseShellExecute = false,
                     CreateNoWindow = true 
                 });
+                if (process != null)
+                {
+                    process.WaitForExit();
+                }
                 
-                Console.WriteLine($"AppImage integrated into system menu: {desktopPath}");
+                Console.WriteLine($"AppImage integrated/updated in system menu: {desktopPath}");
             }
         }
         catch (Exception ex)

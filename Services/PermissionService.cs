@@ -29,7 +29,6 @@ public class PermissionService
         var nativeDir = Path.Combine(installDir!, "Native");
         var launcherSrc = Path.Combine(nativeDir, "vox-launch.c");
         var setupScript = Path.Combine(nativeDir, "setup-launcher.sh");
-        var launcherBin = Path.Combine(installDir!, "vox-launch");
 
         if (!File.Exists(launcherSrc) || !File.Exists(setupScript)) {
             // Fallback to development paths
@@ -41,6 +40,22 @@ public class PermissionService
             Console.WriteLine($"Elevation Error: Could not find setup-launcher.sh at {setupScript}");
             return false;
         }
+
+        string voxassistDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "voxassist");
+        try
+        {
+            if (!Directory.Exists(voxassistDir))
+            {
+                Directory.CreateDirectory(voxassistDir);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Warning: Could not create voxassist directory: {ex.Message}");
+        }
+
+        var launcherBin = Path.Combine(voxassistDir, "vox-launch");
+        string appPath = Environment.GetEnvironmentVariable("APPIMAGE") ?? currentPath;
 
         // Check for gcc before starting
         try {
@@ -66,7 +81,7 @@ public class PermissionService
             var psi = new ProcessStartInfo
             {
                 FileName = "pkexec",
-                Arguments = $"/bin/bash \"{setupScript}\" \"{launcherSrc}\" \"{launcherBin}\" \"{currentPath}\"",
+                Arguments = $"/bin/bash \"{setupScript}\" \"{launcherSrc}\" \"{launcherBin}\" \"{appPath}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
@@ -89,7 +104,7 @@ public class PermissionService
             }
 
             // Success... restart via launcher
-            Process.Start(new ProcessStartInfo { FileName = launcherBin, Arguments = currentPath, UseShellExecute = true });
+            Process.Start(new ProcessStartInfo { FileName = launcherBin, Arguments = $"\"{appPath}\"", UseShellExecute = true });
             Environment.Exit(0);
             return true;
         }

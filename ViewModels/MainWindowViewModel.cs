@@ -489,7 +489,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     /// Handles the recording of a global hotkey.
     /// This starts the audio capture and prepares for streaming.
     /// </summary>
-    private async void OnHotKeyPressed(int actionId)
+    private void OnHotKeyPressed(int actionId)
     {
         if (actionId < 0 || actionId >= Actions.Count) return;
         var action = Actions[actionId];
@@ -501,17 +501,15 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         
         _captureCts = new CancellationTokenSource();
         var token = _captureCts.Token;
-        
-        // Audio feedback: start chirp
-        await Task.Run(() => _sound.PlayChirp(sync: true));
-        await Task.Delay(50);
-        
-        Status = $"Action: {action.Name} (Buffering...)";
-        MicStatus = "Listening...";
-        
-        // Create the PCM stream channel for streaming to the STT provider
+
+        // Open the mic first. RecordStart can glitch PipeWire output and swallow a
+        // chirp that was already in the playback buffer.
         _pcmChannel = System.Threading.Channels.Channel.CreateUnbounded<byte[]>();
         _audioCapture.StartRecording(SelectedMic?.Name ?? "Default");
+        _sound.PlayChirp(sync: false);
+
+        Status = $"Action: {action.Name} (Listening...)";
+        MicStatus = "Listening...";
 
         // Set up a background task to auto-stop recording if the maximum length is exceeded
         _ = Task.Run(async () =>

@@ -13,6 +13,9 @@ public class SoundService : IDisposable
     private int _chirpSample;
     private int _errorSample;
     private int _tickSample;
+    private int _keepAliveSample;
+    private int _keepAliveChannel;
+    private Timer? _keepAliveTimer;
 
     public SoundService()
     {
@@ -20,13 +23,58 @@ public class SoundService : IDisposable
         if (Bass.Init() || Bass.LastError == Errors.Already)
         {
             // Set a few config options for lower latency
-            Bass.Configure(Configuration.PlaybackBufferLength, 100);
-            Bass.Configure(Configuration.UpdatePeriod, 10);
+            Bass.Configure(Configuration.PlaybackBufferLength, 50);
+            Bass.Configure(Configuration.UpdatePeriod, 5);
             
             // "Warm up" the device by starting/stopping a dummy output
             Bass.Start();
             
             LoadSounds();
+            StartKeepAlive();
+        }
+    }
+
+    /// <summary>
+    /// PipeWire/Pulse suspend idle or digitally-silent streams. A looping ultrasonic
+    /// tone at tiny amplitude keeps the output node alive without being audible.
+    /// Volume 0 is not enough — that is still digital silence and gets corked.
+    /// </summary>
+    private void StartKeepAlive()
+    {
+        try
+        {
+            _keepAliveSample = CreateSineSample(17000f, 0.25f, 44100, amplitude: 0.004f);
+            if (_keepAliveSample == 0) return;
+
+            EnsureKeepAlivePlaying(forceRestart: true);
+
+            _keepAliveTimer = new Timer(_ =>
+            {
+                try { EnsureKeepAlivePlaying(forceRestart: false); }
+                catch { /* ignore */ }
+            }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"SoundService keep-alive failed: {ex.Message}");
+        }
+    }
+
+    private void EnsureKeepAlivePlaying(bool forceRestart)
+    {
+        if (_keepAliveSample == 0) return;
+
+        if (_keepAliveChannel == 0)
+        {
+            _keepAliveChannel = Bass.SampleGetChannel(_keepAliveSample);
+            if (_keepAliveChannel == 0) return;
+            Bass.ChannelFlags(_keepAliveChannel, BassFlags.Loop, BassFlags.Loop);
+        }
+
+        if (forceRestart || Bass.ChannelIsActive(_keepAliveChannel) != PlaybackState.Playing)
+        {
+            Bass.Start();
+            Bass.ChannelPlay(_keepAliveChannel, true);
         }
     }
 
@@ -34,9 +82,10 @@ public class SoundService : IDisposable
     {
         try
         {
-            _chirpSample = CreateSineSample(1200, 0.01f, 44100); // 30ms Pip at 1200Hz
-            _errorSample = CreateSineSample(400, 0.1f, 44100);
-            _tickSample = CreateSineSample(800, 0.005f, 44100); // Very short 5ms click at 800Hz
+            // Long enough to survive a PipeWire graph hiccup when capture starts.
+            _chirpSample = CreateSineSample(1200, 0.05f, 44100, envelopeMs: 4f);
+            _errorSample = CreateSineSample(400, 0.1f, 44100, envelopeMs: 4f);
+            _tickSample = CreateSineSample(800, 0.008f, 44100, envelopeMs: 2f);
         }
         catch (Exception ex)
         {
@@ -44,48 +93,52 @@ public class SoundService : IDisposable
         }
     }
 
-    private int CreateSineSample(float frequency, float duration, int sampleRate)
+    private int CreateSineSample(float frequency, float duration, int sampleRate, float amplitude = 1f, float envelopeMs = 0f)
     {
         int channels = 1;
         int bitsPerSample = 16;
-        int numSamples = (int)(sampleRate * duration);
+        int numSamples = Math.Max(1, (int)(sampleRate * duration));
         int dataSize = numSamples * channels * (bitsPerSample / 8);
+        int envSamples = envelopeMs > 0 ? Math.Max(1, (int)(sampleRate * (envelopeMs / 1000f))) : 0;
 
-        // Generate Sine Wave Data
         byte[] pcmData = new byte[dataSize];
         for (int i = 0; i < numSamples; i++)
         {
-            short value = (short)(Math.Sin(2 * Math.PI * frequency * i / sampleRate) * 32767); // 100% volume
+            float env = 1f;
+            if (envSamples > 0)
+            {
+                if (i < envSamples) env = i / (float)envSamples;
+                else if (i > numSamples - envSamples) env = (numSamples - i) / (float)envSamples;
+            }
+
+            short value = (short)(Math.Sin(2 * Math.PI * frequency * i / sampleRate) * 32767 * amplitude * env);
             pcmData[i * 2] = (byte)(value & 0xFF);
             pcmData[i * 2 + 1] = (byte)((value >> 8) & 0xFF);
         }
 
-
-        // Create a WAV header in memory so BASS can load it as a sample
         using var ms = new MemoryStream();
         using var writer = new BinaryWriter(ms);
         writer.Write("RIFF".ToCharArray());
         writer.Write(36 + dataSize);
         writer.Write("WAVE".ToCharArray());
         writer.Write("fmt ".ToCharArray());
-        writer.Write(16); // subchunk1size
-        writer.Write((short)1); // audioformat (PCM)
+        writer.Write(16);
+        writer.Write((short)1);
         writer.Write((short)channels);
         writer.Write(sampleRate);
-        writer.Write(sampleRate * channels * bitsPerSample / 8); // byte rate
-        writer.Write((short)(channels * bitsPerSample / 8)); // block align
+        writer.Write(sampleRate * channels * bitsPerSample / 8);
+        writer.Write((short)(channels * bitsPerSample / 8));
         writer.Write((short)bitsPerSample);
         writer.Write("data".ToCharArray());
         writer.Write(dataSize);
         writer.Write(pcmData);
 
         byte[] wavBytes = ms.ToArray();
-        
-        // Load into BASS sample
+
         GCHandle pinnedArray = GCHandle.Alloc(wavBytes, GCHandleType.Pinned);
         try
         {
-            return Bass.SampleLoad(pinnedArray.AddrOfPinnedObject(), 0, wavBytes.Length, 3, BassFlags.Default);
+            return Bass.SampleLoad(pinnedArray.AddrOfPinnedObject(), 0, wavBytes.Length, 8, BassFlags.SampleOverrideLowestVolume);
         }
         finally
         {
@@ -96,14 +149,28 @@ public class SoundService : IDisposable
     public void PlayChirp(bool sync = false)
     {
         if (_chirpSample == 0) return;
-        
+
+        Bass.Start();
+        EnsureKeepAlivePlaying(forceRestart: false);
+
         var channel = Bass.SampleGetChannel(_chirpSample);
-        Bass.ChannelPlay(channel);
+        if (channel == 0)
+        {
+            Bass.SampleStop(_chirpSample);
+            channel = Bass.SampleGetChannel(_chirpSample);
+            if (channel == 0)
+            {
+                Console.WriteLine($"PlayChirp: SampleGetChannel failed: {Bass.LastError}");
+                return;
+            }
+        }
+
+        Bass.ChannelSetAttribute(channel, ChannelAttribute.Volume, 1f);
+        if (!Bass.ChannelPlay(channel, true))
+            Console.WriteLine($"PlayChirp: ChannelPlay failed: {Bass.LastError}");
 
         if (sync)
-        {
-            Thread.Sleep(60);
-        }
+            Thread.Sleep(70);
     }
 
     public void PlayDoubleChirp(bool sync = false)
@@ -215,6 +282,13 @@ public class SoundService : IDisposable
 
     public void Dispose()
     {
+        try { _keepAliveTimer?.Dispose(); } catch { /* ignore */ }
+        if (_keepAliveChannel != 0)
+        {
+            try { Bass.ChannelStop(_keepAliveChannel); } catch { /* ignore */ }
+            _keepAliveChannel = 0;
+        }
+        if (_keepAliveSample != 0) Bass.SampleFree(_keepAliveSample);
         if (_chirpSample != 0) Bass.SampleFree(_chirpSample);
         if (_errorSample != 0) Bass.SampleFree(_errorSample);
         if (_tickSample != 0) Bass.SampleFree(_tickSample);

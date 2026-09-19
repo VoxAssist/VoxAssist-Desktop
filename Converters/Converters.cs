@@ -23,25 +23,6 @@ public class BoolToFreezeTextConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }
 
-public class CompressionNameConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
-    {
-        if (value is VoxAssist.Desktop.Models.CompressionType type)
-        {
-            return type switch
-            {
-                VoxAssist.Desktop.Models.CompressionType.None => "None (PCM)",
-                VoxAssist.Desktop.Models.CompressionType.Flac => "FLAC",
-                VoxAssist.Desktop.Models.CompressionType.G711 => "G.711 (μ-law)",
-                _ => type.ToString()
-            };
-        }
-        return value?.ToString() ?? "";
-    }
-    public object ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) => throw new NotImplementedException();
-}
-
 public class InverseBoolConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value is false;

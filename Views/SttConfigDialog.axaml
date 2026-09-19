@@ -5,15 +5,16 @@
         x:Class="VoxAssist.Desktop.Views.SttConfigDialog"
         x:DataType="Views:SttConfigDialog"
         x:Name="Root"
-        Title="Speech to Text Configuration" Width="400" SizeToContent="Height"
+        Title="Grok Speech to Text"
+        Width="480"
+        MaxHeight="720"
+        SizeToContent="Height"
         WindowStartupLocation="CenterOwner">
     <ScrollViewer>
         <StackPanel Margin="20" Spacing="10" DataContext="{Binding #Root.MainVm}" x:DataType="vm:MainWindowViewModel">
-        <!-- Grok Configuration -->
-        <StackPanel IsVisible="{Binding EditingGrokStt}" Spacing="10">
             <TextBlock Text="Grok Provider:"/>
             <Grid ColumnDefinitions="*,Auto,Auto">
-                <ComboBox ItemsSource="{Binding #Root.MainVm.AiProviders}" 
+                <ComboBox ItemsSource="{Binding #Root.MainVm.AiProviders}"
                           SelectedItem="{Binding #Root.MainVm.SelectedGrokProvider}"
                           HorizontalAlignment="Stretch">
                     <ComboBox.ItemTemplate>
@@ -26,7 +27,29 @@
                 <Button Grid.Column="2" Content="+" Click="AddProviderClick" Margin="5,0,0,0" ToolTip.Tip="Add New Provider"/>
             </Grid>
 
-            <TextBlock Text="Language Formatting:"/>
+            <TextBlock Text="TTS Voice:"/>
+            <ComboBox ItemsSource="{Binding #Root.MainVm.GrokTtsVoices}"
+                      SelectedItem="{Binding #Root.MainVm.GrokTtsVoice}"
+                      HorizontalAlignment="Stretch"/>
+
+            <Separator Background="#333" Margin="0,6"/>
+            <TextBlock Text="Transcription" FontWeight="Bold" FontSize="15"/>
+
+            <TextBlock Text="Model:"/>
+            <ComboBox ItemsSource="{Binding #Root.MainVm.SttModels}"
+                      SelectedValue="{Binding #Root.MainVm.SttModel}"
+                      SelectedValueBinding="{Binding Value}"
+                      HorizontalAlignment="Stretch"
+                      ToolTip.Tip="Grok Voice Transcribe 2.0 is twice as accurate as 1.0 at the same price.">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Key}"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <TextBlock Text="Language / text formatting:"
+                       ToolTip.Tip="Setting a language enables Inverse Text Normalization (numbers, dates, currency, phone numbers). Auto-detect transcribes any language but does not format text."/>
             <ComboBox ItemsSource="{Binding #Root.MainVm.GrokLanguages}"
                       SelectedValue="{Binding #Root.MainVm.GrokLanguage}"
                       SelectedValueBinding="{Binding Value}"
@@ -38,34 +61,79 @@
                </ComboBox.ItemTemplate>
             </ComboBox>
 
-            <TextBlock Text="TTS Voice:"/>
-            <ComboBox ItemsSource="{Binding #Root.MainVm.GrokTtsVoices}"
-                      SelectedItem="{Binding #Root.MainVm.GrokTtsVoice}"
-                      HorizontalAlignment="Stretch">
-            </ComboBox>
+            <CheckBox Content="Interim results"
+                      IsChecked="{Binding SttInterimResults}"
+                      ToolTip.Tip="Show partial transcripts about every 500 ms while you speak."/>
+            <CheckBox Content="Speaker diarization"
+                      IsChecked="{Binding SttDiarize}"
+                      ToolTip.Tip="Label each speaker in the transcript at no extra cost."/>
+            <CheckBox Content="Include filler words"
+                      IsChecked="{Binding SttFillerWords}"
+                      ToolTip.Tip="Keep uh, um, and er in the transcript. Off by default."/>
+            <CheckBox Content="Smart turn detection"
+                      IsChecked="{Binding SttSmartTurnEnabled}"
+                      ToolTip.Tip="Hold the utterance open through mid-sentence pauses until the model is confident the speaker is done."/>
 
-            <TextBlock Text="Audio Compression:"/>
-            <ComboBox ItemsSource="{Binding #Root.MainVm.CompressionTypes}" 
-                      SelectedItem="{Binding #Root.MainVm.SelectedCompression}" 
-                      HorizontalAlignment="Stretch">
-                <ComboBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Converter={StaticResource CompressionNameConverter}}"/>
-                    </DataTemplate>
-                </ComboBox.ItemTemplate>
-            </ComboBox>
-        </StackPanel>
+            <Grid ColumnDefinitions="*,160" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                <TextBlock Text="Endpointing (ms):"
+                           VerticalAlignment="Center"
+                           ToolTip.Tip="Silence duration before an utterance is considered finished. 0–5000. Default 400."/>
+                <NumericUpDown Grid.Column="1"
+                               Value="{Binding SttEndpointingMs}"
+                               Minimum="0"
+                               Maximum="5000"
+                               Increment="50"
+                               Width="160"/>
 
-        <!-- VoxAssist Server Configuration -->
-        <StackPanel IsVisible="{Binding EditingVoxStt}" Spacing="10">
-            <TextBlock Text="Server Host URL:"/>
-            <TextBox Text="{Binding VoxAssistHostUrl}" Watermark="http://localhost:5000"/>
-        </StackPanel>
+                <TextBlock Grid.Row="1" Text="VAD threshold:"
+                           VerticalAlignment="Center"
+                           ToolTip.Tip="Speech-probability gate (0–1). Lower values capture quieter or noisier speech. 0 disables the gate. Default 0.08."/>
+                <NumericUpDown Grid.Row="1" Grid.Column="1"
+                               Value="{Binding SttVadThreshold}"
+                               Minimum="0"
+                               Maximum="1"
+                               Increment="0.01"
+                               FormatString="0.00"
+                               Width="160"/>
 
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0" Spacing="10">
-            <Button Content="Cancel" Click="CancelClick" Width="100" HorizontalContentAlignment="Center" HotKey="Escape"/>
-            <Button Content="Save" Background="#33AA33" Click="SaveClick" Width="100" HorizontalContentAlignment="Center"/>
+                <TextBlock Grid.Row="2" Text="Smart turn threshold:"
+                           VerticalAlignment="Center"
+                           IsEnabled="{Binding SttSmartTurnEnabled}"
+                           ToolTip.Tip="0.5 balanced, 0.7 conservative (better for dictation), 0.9 very conservative."/>
+                <NumericUpDown Grid.Row="2" Grid.Column="1"
+                               Value="{Binding SttSmartTurnThreshold}"
+                               Minimum="0"
+                               Maximum="1"
+                               Increment="0.05"
+                               FormatString="0.00"
+                               IsEnabled="{Binding SttSmartTurnEnabled}"
+                               Width="160"/>
+
+                <TextBlock Grid.Row="3" Text="Smart turn timeout (ms):"
+                           VerticalAlignment="Center"
+                           IsEnabled="{Binding SttSmartTurnEnabled}"
+                           ToolTip.Tip="Force the turn to end after this much silence even if Smart Turn is unsure. 1–5000."/>
+                <NumericUpDown Grid.Row="3" Grid.Column="1"
+                               Value="{Binding SttSmartTurnTimeoutMs}"
+                               Minimum="1"
+                               Maximum="5000"
+                               Increment="100"
+                               IsEnabled="{Binding SttSmartTurnEnabled}"
+                               Width="160"/>
+            </Grid>
+
+            <TextBlock Text="Key terms:"
+                       ToolTip.Tip="Bias recognition toward product names and domain vocabulary. One term per line, up to 100 terms, 50 characters each."/>
+            <TextBox Text="{Binding SttKeyTerms}"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     MinHeight="80"
+                     Watermark="VoxAssist&#x0a;Understand The Universe"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0" Spacing="10">
+                <Button Content="Cancel" Click="CancelClick" Width="100" HorizontalContentAlignment="Center" HotKey="Escape"/>
+                <Button Content="Save" Background="#33AA33" Click="SaveClick" Width="100" HorizontalContentAlignment="Center"/>
+            </StackPanel>
         </StackPanel>
-    </StackPanel>
     </ScrollViewer>
 </Window>

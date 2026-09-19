@@ -246,19 +246,10 @@
 
                         <TextBlock Text="Speech to Text" FontSize="18" FontWeight="Bold" Margin="0,10,0,0"/>
                         <Border BorderBrush="#333" BorderThickness="1" Padding="15" CornerRadius="8" Margin="0,5,0,0">
-                            <StackPanel Spacing="10">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <RadioButton Content="Grok (xAI)" IsChecked="{Binding IsGrokStt}"/>
-                                    <Button Grid.Column="1" Content="Edit" Command="{Binding EditGrokStt}"/>
-                                </Grid>
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <RadioButton Content="Grok Websocket" IsChecked="{Binding IsGrokWebsocketStt}"/>
-                                    <Button Grid.Column="1" Content="Edit" Command="{Binding EditGrokStt}"/>
-                                </Grid>
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <RadioButton Content="VoxAssist-Server" IsChecked="{Binding IsVoxStt}"/>
-                                    <Button Grid.Column="1" Content="Edit" Command="{Binding EditVoxStt}"/>
-                                </Grid>
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Grok Voice Transcribe (WebSocket)" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding SttSettingsSummary}" Foreground="Gray" TextWrapping="Wrap"/>
+                                <Button Content="Configure..." Command="{Binding EditGrokStt}" HorizontalAlignment="Left"/>
                             </StackPanel>
                         </Border>
 

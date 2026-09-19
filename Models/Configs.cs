@@ -29,23 +29,22 @@ public class ActionConfig
     public bool UseTts { get; set; }
 }
 
-public enum CompressionType
-{
-    None,
-    G711,
-    Flac
-}
-
 public class UserConfig
 {
     public bool IsCcw { get; set; }
-    public bool IsGrokStt { get; set; } = true;
-    public bool IsGrokWebsocketStt { get; set; } = false;
     public string GrokProvider { get; set; } = "";
     public string GrokLanguage { get; set; } = "en";
     public string GrokTtsVoice { get; set; } = "eve";
-    public string VoxAssistHostUrl { get; set; } = "";
     public int MaxTtsLength { get; set; } = 600;
-    public CompressionType SelectedCompression { get; set; } = CompressionType.None;
+    public string SttModel { get; set; } = GrokSttOptions.Model20;
+    public bool? SttInterimResults { get; set; }
+    public int? SttEndpointingMs { get; set; }
+    public bool SttDiarize { get; set; }
+    public bool SttFillerWords { get; set; }
+    public string SttKeyTerms { get; set; } = "";
+    public bool SttSmartTurnEnabled { get; set; }
+    public double? SttSmartTurnThreshold { get; set; }
+    public int? SttSmartTurnTimeoutMs { get; set; }
+    public double? SttVadThreshold { get; set; }
     public DateTime LastUpdateCheck { get; set; } = DateTime.MinValue;
 }

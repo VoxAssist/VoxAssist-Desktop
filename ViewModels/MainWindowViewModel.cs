@@ -127,14 +127,6 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private MicDevice? _selectedMic;
     public MicDevice? SelectedMic { get => _selectedMic; set => this.RaiseAndSetIfChanged(ref _selectedMic, value); }
 
-    public ObservableCollection<CompressionType> CompressionTypes { get; } = new()
-    {
-        CompressionType.None, CompressionType.G711, CompressionType.Flac
-    };
-
-    private CompressionType _selectedCompression = CompressionType.None;
-    public CompressionType SelectedCompression { get => _selectedCompression; set => this.RaiseAndSetIfChanged(ref _selectedCompression, value); }
-
     public ObservableCollection<ActionViewModel> Actions { get; } = new();
 
     public ObservableCollection<LlmViewModel> Llms { get; } = new();
@@ -168,6 +160,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         {
             this.RaiseAndSetIfChanged(ref _grokProvider, value);
             this.RaisePropertyChanged(nameof(SelectedGrokProvider));
+            this.RaisePropertyChanged(nameof(SttSettingsSummary));
         }
     }
 
@@ -185,6 +178,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<KeyValuePair<string, string>> GrokLanguages { get; } = new()
     {
+        new("Auto-detect (no formatting)", GrokSttOptions.AutoLanguage),
         new("Arabic", "ar"), new("Czech", "cs"), new("Danish", "da"), new("Dutch", "nl"),
         new("English", "en"), new("Filipino", "fil"), new("French", "fr"), new("German", "de"),
         new("Hindi", "hi"), new("Indonesian", "id"), new("Italian", "it"), new("Japanese", "ja"),
@@ -194,15 +188,96 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         new("Vietnamese", "vi")
     };
 
+    public ObservableCollection<KeyValuePair<string, string>> SttModels { get; } = new()
+    {
+        new("Grok Voice Transcribe 2.0", GrokSttOptions.Model20),
+        new("Grok Voice Transcribe 1.0", GrokSttOptions.Model10)
+    };
+
     private string _grokLanguage = "en";
-    public string GrokLanguage { get => _grokLanguage; set => this.RaiseAndSetIfChanged(ref _grokLanguage, value); }
+    public string GrokLanguage
+    {
+        get => _grokLanguage;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _grokLanguage, value);
+            this.RaisePropertyChanged(nameof(SttSettingsSummary));
+        }
+    }
 
     public ObservableCollection<string> GrokTtsVoices { get; } = new() { "eve", "caleb", "viona", "lyra", "jace" };
     private string _grokTtsVoice = "eve";
     public string GrokTtsVoice { get => _grokTtsVoice; set => this.RaiseAndSetIfChanged(ref _grokTtsVoice, value); }
 
-    private string _voxAssistHostUrl = "";
-    public string VoxAssistHostUrl { get => _voxAssistHostUrl; set => this.RaiseAndSetIfChanged(ref _voxAssistHostUrl, value); }
+    private string _sttModel = GrokSttOptions.Model20;
+    public string SttModel
+    {
+        get => _sttModel;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _sttModel, value);
+            this.RaisePropertyChanged(nameof(SttSettingsSummary));
+        }
+    }
+
+    private bool _sttInterimResults = true;
+    public bool SttInterimResults
+    {
+        get => _sttInterimResults;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _sttInterimResults, value);
+            this.RaisePropertyChanged(nameof(SttSettingsSummary));
+        }
+    }
+
+    private int _sttEndpointingMs = 400;
+    public int SttEndpointingMs { get => _sttEndpointingMs; set => this.RaiseAndSetIfChanged(ref _sttEndpointingMs, value); }
+
+    private bool _sttDiarize;
+    public bool SttDiarize
+    {
+        get => _sttDiarize;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _sttDiarize, value);
+            this.RaisePropertyChanged(nameof(SttSettingsSummary));
+        }
+    }
+
+    private bool _sttFillerWords;
+    public bool SttFillerWords
+    {
+        get => _sttFillerWords;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _sttFillerWords, value);
+            this.RaisePropertyChanged(nameof(SttSettingsSummary));
+        }
+    }
+
+    private string _sttKeyTerms = "";
+    public string SttKeyTerms { get => _sttKeyTerms; set => this.RaiseAndSetIfChanged(ref _sttKeyTerms, value); }
+
+    private bool _sttSmartTurnEnabled;
+    public bool SttSmartTurnEnabled
+    {
+        get => _sttSmartTurnEnabled;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _sttSmartTurnEnabled, value);
+            this.RaisePropertyChanged(nameof(SttSettingsSummary));
+        }
+    }
+
+    private double _sttSmartTurnThreshold = 0.7;
+    public double SttSmartTurnThreshold { get => _sttSmartTurnThreshold; set => this.RaiseAndSetIfChanged(ref _sttSmartTurnThreshold, value); }
+
+    private int _sttSmartTurnTimeoutMs = 3000;
+    public int SttSmartTurnTimeoutMs { get => _sttSmartTurnTimeoutMs; set => this.RaiseAndSetIfChanged(ref _sttSmartTurnTimeoutMs, value); }
+
+    private double _sttVadThreshold = 0.08;
+    public double SttVadThreshold { get => _sttVadThreshold; set => this.RaiseAndSetIfChanged(ref _sttVadThreshold, value); }
 
     private int _maxTtsLength = 600;
     public int MaxTtsLength
@@ -215,43 +290,39 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private bool _isGrokStt = true;
-    public bool IsGrokStt
+    public string SttSettingsSummary
     {
-        get => _isGrokStt;
-        set { if (value) SetSttMode(true, false, false); }
+        get
+        {
+            var lang = GrokLanguages.FirstOrDefault(l => l.Value == GrokLanguage).Key;
+            if (string.IsNullOrEmpty(lang)) lang = GrokLanguage;
+            var model = SttModels.FirstOrDefault(m => m.Value == SttModel).Key;
+            if (string.IsNullOrEmpty(model)) model = SttModel;
+
+            var extras = new List<string>();
+            if (SttInterimResults) extras.Add("interim results");
+            if (SttDiarize) extras.Add("diarization");
+            if (SttFillerWords) extras.Add("filler words");
+            if (SttSmartTurnEnabled) extras.Add("smart turn");
+            var extra = extras.Count > 0 ? " · " + string.Join(", ", extras) : "";
+            return $"{GrokProvider} · {model} · {lang}{extra}";
+        }
     }
 
-    private bool _isGrokWebsocketStt;
-    public bool IsGrokWebsocketStt
+    public GrokSttOptions CreateSttOptions() => new()
     {
-        get => _isGrokWebsocketStt;
-        set { if (value) SetSttMode(false, true, false); }
-    }
-
-    private bool _isVoxStt;
-    public bool IsVoxStt
-    {
-        get => _isVoxStt;
-        set { if (value) SetSttMode(false, false, true); }
-    }
-
-    private void SetSttMode(bool isGrok, bool isGrokWs, bool isVox)
-    {
-        if (_isGrokStt == isGrok && _isGrokWebsocketStt == isGrokWs && _isVoxStt == isVox)
-            return;
-
-        this.RaiseAndSetIfChanged(ref _isGrokStt, isGrok, nameof(IsGrokStt));
-        this.RaiseAndSetIfChanged(ref _isGrokWebsocketStt, isGrokWs, nameof(IsGrokWebsocketStt));
-        this.RaiseAndSetIfChanged(ref _isVoxStt, isVox, nameof(IsVoxStt));
-        SaveLocalData();
-    }
-
-    private bool _editingGrokStt;
-    public bool EditingGrokStt { get => _editingGrokStt; set => this.RaiseAndSetIfChanged(ref _editingGrokStt, value); }
-
-    private bool _editingVoxStt;
-    public bool EditingVoxStt { get => _editingVoxStt; set => this.RaiseAndSetIfChanged(ref _editingVoxStt, value); }
+        Model = SttModel,
+        Language = GrokLanguage,
+        InterimResults = SttInterimResults,
+        EndpointingMs = SttEndpointingMs,
+        Diarize = SttDiarize,
+        FillerWords = SttFillerWords,
+        KeyTerms = GrokSttOptions.ParseKeyTerms(SttKeyTerms).ToList(),
+        SmartTurnEnabled = SttSmartTurnEnabled,
+        SmartTurnThreshold = SttSmartTurnThreshold,
+        SmartTurnTimeoutMs = SttSmartTurnTimeoutMs,
+        VadThreshold = SttVadThreshold
+    };
 
     private UpdateInfo? _availableUpdate;
     public UpdateInfo? AvailableUpdate { get => _availableUpdate; set => this.RaiseAndSetIfChanged(ref _availableUpdate, value); }
@@ -478,14 +549,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             {
                 // Wait for the configured pre-buffer delay before sending data
                 await Task.Delay(PreBufferMs, token);
-                if (IsGrokWebsocketStt)
-                {
-                    await StartGrokWebsocketStreaming(action, token, record);
-                }
-                else
-                {
-                    await StartGrokStreaming(action, token, record);
-                }
+                await StartGrokWebsocketStreaming(action, token, record);
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
@@ -530,77 +594,6 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         
         // Start "thinking" audio feedback
         StartTicking();
-    }
-
-    /// <summary>
-    /// Manages the real-time streaming of audio data to the STT provider.
-    /// </summary>
-    private async Task StartGrokStreaming(ActionViewModel action, CancellationToken token, InteractionRecord record)
-    {
-        Status = $"Action: {action.Name} (Streaming...)";
-        try
-        {
-            var provider = AiProviders.FirstOrDefault(p => p.Name == GrokProvider);
-            if (provider == null || string.IsNullOrEmpty(provider.ApiKey))
-            {
-                _sound.PlayError();
-                record.ErrorMessage = "Grok Provider not configured.";
-                record.UpdateDisplay();
-                SafeAddConversationRecord(record);
-                StopTicking();
-                return;
-            }
-
-            // Stream audio bytes from the channel to the AI service
-            var sttResult = await _grok.StreamSpeechToTextAsync(_pcmChannel!.Reader, provider.ApiKey, GrokLanguage, SelectedCompression, token);
-            _sttLatencySw.Stop();
-            
-            record.TtsDurationMs = _sttLatencySw.Elapsed.TotalMilliseconds;
-            
-            if (sttResult == null || string.IsNullOrEmpty(sttResult.Text) || sttResult.Text.StartsWith("Error"))
-            {
-                _sound.PlayError();
-                record.ErrorMessage = $"STT Error: {sttResult?.Text ?? "Unknown"}";
-                record.UpdateDisplay();
-                SafeAddConversationRecord(record);
-                StopTicking();
-            }
-            else
-            {
-                // STT Successful: Move to LLM post-processing
-                record.RawStt = sttResult.Text;
-                record.AudioDuration = sttResult.Duration;
-                record.AudioFormat = sttResult.Format;
-                record.RawAudioBytes = sttResult.RawBytes;
-                record.BytesSent = sttResult.BytesSent;
-                record.Compression = SelectedCompression.ToString();
-                
-                var sw = Stopwatch.StartNew();
-                await ProcessActionResponse(sttResult.Text, action, record);
-                sw.Stop();
-                record.PostProcessingDurationMs = sw.Elapsed.TotalMilliseconds;
-            }
-        }
-        catch (Exception ex)
-        {
-            if (!token.IsCancellationRequested)
-            {
-                _sound.PlayError();
-                record.ErrorMessage = $"Streaming Error: {ex.Message}";
-                record.UpdateDisplay();
-                SafeAddConversationRecord(record);
-            }
-            StopTicking();
-        }
-        finally
-        {
-            // Reset UI state
-            Dispatcher.UIThread.Post(() =>
-            {
-                MicStatus = "Ready";
-                Status = "Ready";
-            });
-        }
     }
 
     /// <summary>
@@ -716,7 +709,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
                 });
             };
 
-            var sttResult = await _grok.StreamSpeechToTextWebsocketAsync(_pcmChannel!.Reader, provider.ApiKey, GrokLanguage, onTranscriptChunk, token);
+            var sttResult = await _grok.StreamSpeechToTextWebsocketAsync(_pcmChannel!.Reader, provider.ApiKey, CreateSttOptions(), onTranscriptChunk, token);
             _sttLatencySw.Stop();
             
             record.TtsDurationMs = _sttLatencySw.Elapsed.TotalMilliseconds;
@@ -926,12 +919,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             }
             else
             {
-                // No AI model selected: Just type the raw transcribed text
+                // Live WebSocket typing already injected the text; just record the final transcript.
                 record.TypedText = text;
-                if (!IsGrokWebsocketStt)
-                {
-                    await _keyboard.TypeTextAsync(text);
-                }
             }
 
             // Finalize the record display
@@ -990,61 +979,70 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     public async Task EditGrokStt()
     {
-        var oldIsGrok = IsGrokStt;
-        var oldIsGrokWs = IsGrokWebsocketStt;
-        var oldIsVox = IsVoxStt;
-        var oldProvider = GrokProvider;
-        var oldLang = GrokLanguage;
-        var oldComp = SelectedCompression;
-        EditingGrokStt = true;
-        EditingVoxStt = false;
+        var snapshot = CaptureSttDialogState();
         var dialog = new SttConfigDialog(this);
         dialog.DataContext = dialog;
         var mainWindow = GetMainWindow();
         if (mainWindow != null)
         {
-            if (await dialog.ShowDialog<bool>(mainWindow)) SaveLocalData();
+            if (await dialog.ShowDialog<bool>(mainWindow))
+            {
+                SaveLocalData();
+                this.RaisePropertyChanged(nameof(SttSettingsSummary));
+            }
             else
             {
-                _isGrokStt = oldIsGrok;
-                _isGrokWebsocketStt = oldIsGrokWs;
-                _isVoxStt = oldIsVox;
-                this.RaisePropertyChanged(nameof(IsGrokStt));
-                this.RaisePropertyChanged(nameof(IsGrokWebsocketStt));
-                this.RaisePropertyChanged(nameof(IsVoxStt));
-                GrokProvider = oldProvider;
-                GrokLanguage = oldLang;
-                SelectedCompression = oldComp;
+                RestoreSttDialogState(snapshot);
             }
         }
     }
 
-    public async Task EditVoxStt()
+    private SttDialogState CaptureSttDialogState() => new(
+        GrokProvider,
+        GrokLanguage,
+        GrokTtsVoice,
+        SttModel,
+        SttInterimResults,
+        SttEndpointingMs,
+        SttDiarize,
+        SttFillerWords,
+        SttKeyTerms,
+        SttSmartTurnEnabled,
+        SttSmartTurnThreshold,
+        SttSmartTurnTimeoutMs,
+        SttVadThreshold);
+
+    private void RestoreSttDialogState(SttDialogState snapshot)
     {
-        var oldIsGrok = IsGrokStt;
-        var oldIsGrokWs = IsGrokWebsocketStt;
-        var oldIsVox = IsVoxStt;
-        var oldUrl = VoxAssistHostUrl;
-        EditingGrokStt = false;
-        EditingVoxStt = true;
-        var dialog = new SttConfigDialog(this);
-        dialog.DataContext = dialog;
-        var mainWindow = GetMainWindow();
-        if (mainWindow != null)
-        {
-            if (await dialog.ShowDialog<bool>(mainWindow)) SaveLocalData();
-            else
-            {
-                _isGrokStt = oldIsGrok;
-                _isGrokWebsocketStt = oldIsGrokWs;
-                _isVoxStt = oldIsVox;
-                this.RaisePropertyChanged(nameof(IsGrokStt));
-                this.RaisePropertyChanged(nameof(IsGrokWebsocketStt));
-                this.RaisePropertyChanged(nameof(IsVoxStt));
-                VoxAssistHostUrl = oldUrl;
-            }
-        }
+        GrokProvider = snapshot.GrokProvider;
+        GrokLanguage = snapshot.GrokLanguage;
+        GrokTtsVoice = snapshot.GrokTtsVoice;
+        SttModel = snapshot.SttModel;
+        SttInterimResults = snapshot.SttInterimResults;
+        SttEndpointingMs = snapshot.SttEndpointingMs;
+        SttDiarize = snapshot.SttDiarize;
+        SttFillerWords = snapshot.SttFillerWords;
+        SttKeyTerms = snapshot.SttKeyTerms;
+        SttSmartTurnEnabled = snapshot.SttSmartTurnEnabled;
+        SttSmartTurnThreshold = snapshot.SttSmartTurnThreshold;
+        SttSmartTurnTimeoutMs = snapshot.SttSmartTurnTimeoutMs;
+        SttVadThreshold = snapshot.SttVadThreshold;
     }
+
+    private readonly record struct SttDialogState(
+        string GrokProvider,
+        string GrokLanguage,
+        string GrokTtsVoice,
+        string SttModel,
+        bool SttInterimResults,
+        int SttEndpointingMs,
+        bool SttDiarize,
+        bool SttFillerWords,
+        string SttKeyTerms,
+        bool SttSmartTurnEnabled,
+        double SttSmartTurnThreshold,
+        int SttSmartTurnTimeoutMs,
+        double SttVadThreshold);
 
     private async Task EditLlm(LlmViewModel llm, bool isNew = false)
     {

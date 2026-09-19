@@ -176,19 +176,22 @@ public partial class MainWindowViewModel
                 if (config != null)
                 {
                     IsCcw = config.IsCcw;
-                    _isGrokStt = config.IsGrokStt;
-                    _isGrokWebsocketStt = config.IsGrokWebsocketStt;
-                    _isVoxStt = !_isGrokStt && !_isGrokWebsocketStt;
-                    this.RaisePropertyChanged(nameof(IsGrokStt));
-                    this.RaisePropertyChanged(nameof(IsGrokWebsocketStt));
-                    this.RaisePropertyChanged(nameof(IsVoxStt));
                     GrokProvider = string.IsNullOrEmpty(config.GrokProvider) ? "xAI" : config.GrokProvider;
                     GrokLanguage = string.IsNullOrEmpty(config.GrokLanguage) ? "en" : config.GrokLanguage;
                     GrokTtsVoice = string.IsNullOrEmpty(config.GrokTtsVoice) ? "eve" : config.GrokTtsVoice;
-                    VoxAssistHostUrl = config.VoxAssistHostUrl;
                     MaxTtsLength = config.MaxTtsLength > 0 ? config.MaxTtsLength : 600;
-                    SelectedCompression = config.SelectedCompression;
+                    SttModel = string.IsNullOrEmpty(config.SttModel) ? GrokSttOptions.Model20 : config.SttModel;
+                    SttInterimResults = config.SttInterimResults ?? true;
+                    SttEndpointingMs = config.SttEndpointingMs is >= 0 and <= 5000 ? config.SttEndpointingMs.Value : 400;
+                    SttDiarize = config.SttDiarize;
+                    SttFillerWords = config.SttFillerWords;
+                    SttKeyTerms = config.SttKeyTerms ?? "";
+                    SttSmartTurnEnabled = config.SttSmartTurnEnabled;
+                    SttSmartTurnThreshold = config.SttSmartTurnThreshold is >= 0 and <= 1 ? config.SttSmartTurnThreshold.Value : 0.7;
+                    SttSmartTurnTimeoutMs = config.SttSmartTurnTimeoutMs is >= 1 and <= 5000 ? config.SttSmartTurnTimeoutMs.Value : 3000;
+                    SttVadThreshold = config.SttVadThreshold is >= 0 and <= 1 ? config.SttVadThreshold.Value : 0.08;
                     _lastUpdateCheck = config.LastUpdateCheck;
+                    this.RaisePropertyChanged(nameof(SttSettingsSummary));
                 }
             }
         }
@@ -242,14 +245,20 @@ public partial class MainWindowViewModel
             var config = new UserConfig
             {
                 IsCcw = IsCcw,
-                IsGrokStt = IsGrokStt,
-                IsGrokWebsocketStt = IsGrokWebsocketStt,
                 GrokProvider = GrokProvider,
                 GrokLanguage = GrokLanguage,
                 GrokTtsVoice = GrokTtsVoice,
-                VoxAssistHostUrl = VoxAssistHostUrl,
                 MaxTtsLength = MaxTtsLength,
-                SelectedCompression = SelectedCompression,
+                SttModel = SttModel,
+                SttInterimResults = SttInterimResults,
+                SttEndpointingMs = SttEndpointingMs,
+                SttDiarize = SttDiarize,
+                SttFillerWords = SttFillerWords,
+                SttKeyTerms = SttKeyTerms,
+                SttSmartTurnEnabled = SttSmartTurnEnabled,
+                SttSmartTurnThreshold = SttSmartTurnThreshold,
+                SttSmartTurnTimeoutMs = SttSmartTurnTimeoutMs,
+                SttVadThreshold = SttVadThreshold,
                 LastUpdateCheck = _lastUpdateCheck
             };
             File.WriteAllText(Path.Combine(settingsDir, "settings.json"), System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
